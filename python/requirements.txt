@@ -1,0 +1,17 @@
+# Core API
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# Database
+mysql-connector-python>=8.3.0
+
+# Date utilities
+python-dateutil>=2.8.0
+
+# ARIMA / Statistics
+# NOTE: statsmodels requires numpy. Both must match your Python version.
+# Python 3.9–3.13: all versions below install fine.
+# Python 3.14: use --pre flag or wait for wheel releases.
+numpy>=1.24.0
+scipy>=1.10.0
+statsmodels>=0.14.0

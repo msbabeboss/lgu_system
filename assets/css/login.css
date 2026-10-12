@@ -1,0 +1,155 @@
+/*
+ * LGU SYSTEM — LOGIN PAGE STYLESHEET
+ * Palette: #021024 · #052659 · #5483B3 · #7DA0CA · #C1E8FF
+ */
+
+body {
+    background: linear-gradient(135deg, #021024 0%, #052659 50%, #021024 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+.login-wrapper {
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+}
+
+.login-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 40px 36px;
+    box-shadow: 0 20px 60px rgba(2,16,36,0.40);
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.login-logo {
+    width: 72px;
+    height: 72px;
+    background: linear-gradient(135deg, #052659, #5483B3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    box-shadow: 0 6px 20px rgba(5,38,89,0.35);
+}
+
+.login-logo i {
+    font-size: 32px;
+    color: #fff;
+}
+
+.login-header h4 {
+    font-weight: 700;
+    color: #052659;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.btn-login {
+    background: linear-gradient(135deg, #052659, #5483B3);
+    border: none;
+    padding: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border-radius: 8px;
+    transition: all 0.3s;
+    color: #fff;
+}
+
+.btn-login:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(5,38,89,0.40);
+    background: linear-gradient(135deg, #5483B3, #7DA0CA);
+    color: #fff;
+}
+
+.login-footer {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.form-control:focus {
+    border-color: #5483B3;
+    box-shadow: 0 0 0 3px rgba(84,131,179,0.18);
+}
+
+.input-group-text {
+    border-color: #7DA0CA;
+    background: #f0f8ff;
+    color: #052659;
+}
+
+.form-control {
+    border-color: #7DA0CA;
+    color: #021024;
+}
+
+.form-control:hover {
+    border-color: #5483B3;
+}
+
+.form-control::placeholder {
+    color: #7DA0CA;
+}
+
+/* 2FA / OTP inputs */
+.form-label {
+    color: #052659;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+/* Alert overrides */
+.alert-info {
+    background: #eaf6ff;
+    border-color: #C1E8FF;
+    color: #052659;
+}
+
+.alert-danger {
+    background: #fff0f0;
+    border-color: #fecaca;
+    color: #c0392b;
+}
+
+.alert-success {
+    background: #eafaf1;
+    border-color: #a7f3d0;
+    color: #065f46;
+}
+
+/* Links */
+a {
+    color: #5483B3;
+}
+a:hover {
+    color: #052659;
+}
+
+/* Card sub-text */
+.text-muted {
+    color: #7DA0CA !important;
+}
+
+/* Divider line inside card */
+hr {
+    border-color: #C1E8FF;
+}
+
+/* Small badge / pill */
+.badge.bg-primary {
+    background-color: #052659 !important;
+}
+.badge.bg-info {
+    background-color: #5483B3 !important;
+    color: #fff !important;
+}

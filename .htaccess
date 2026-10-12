@@ -1,0 +1,52 @@
+# ============================================================
+#  LGU System — Root .htaccess
+#  Security hardening for XAMPP + Tailscale Funnel deployment
+# ============================================================
+
+# ── 1. Block direct access to sensitive files ────────────────
+<FilesMatch "^(\.env|composer\.(json|lock|phar)|.*\.sql|.*\.md|.*\.log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── 2. Block access to hidden dot-files/folders ─────────────
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── 3. Block directory listing ───────────────────────────────
+Options -Indexes
+
+# ── 4. Block access to sensitive directories ─────────────────
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to config/, helpers/, database/, vendor/, python/, _csrf_reference/
+    RewriteRule ^(config|helpers|database|vendor|python|_csrf_reference|\.agents|\.qodo|\.vscode)(/|$) - [F,L]
+</IfModule>
+
+# ── 5. Security headers ──────────────────────────────────────
+<IfModule mod_headers.c>
+    # Prevent MIME-type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Prevent clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # XSS protection (legacy browsers)
+    Header always set X-XSS-Protection "1; mode=block"
+
+    # Only send referrer on same-origin requests
+    Header always set Referrer-Policy "same-origin"
+
+    # Remove server version info
+    Header unset Server
+    Header unset X-Powered-By
+</IfModule>
+
+# ── 6. PHP error display off (never show errors to browser) ──
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag log_errors On
+</IfModule>

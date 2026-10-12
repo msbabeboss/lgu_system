@@ -1,0 +1,273 @@
+<?php
+require_once __DIR__ . '/../config/config.php';
+requireRole('barangay_admin');
+
+$db  = Database::getInstance()->getConnection();
+$u   = currentUser();
+$bid = (int)$u['barangay_id'];
+
+$search     = sanitize($_GET['search']    ?? '');
+$dateFrom   = sanitize($_GET['date_from'] ?? '');
+$dateTo     = sanitize($_GET['date_to']   ?? '');
+$userFilter = (int)($_GET['user_id'] ?? 0);
+
+// Resolve date preset to actual from/to values
+$activePreset = sanitize($_GET['date_preset'] ?? '');
+if ($activePreset && $activePreset !== 'custom') {
+    $today = date('Y-m-d');
+    switch ($activePreset) {
+        case 'today':    $dateFrom = $today; $dateTo = $today; break;
+        case 'last_day': $dateFrom = date('Y-m-d', strtotime('-1 day')); $dateTo = $today; break;
+        case 'week':     $dateFrom = date('Y-m-d', strtotime('-7 days')); $dateTo = $today; break;
+        case 'month':    $dateFrom = date('Y-m-d', strtotime('-30 days')); $dateTo = $today; break;
+        case 'quarter':  $dateFrom = date('Y-m-d', strtotime('-90 days')); $dateTo = $today; break;
+        case 'year':     $dateFrom = date('Y-01-01'); $dateTo = $today; break;
+    }
+}
+
+// 2-year retention window
+$retentionDate = date('Y-m-d', strtotime('-2 years'));
+
+// Activity = ALL actions for this barangay (Who did what?)
+$baseWhere = "WHERE u.barangay_id = $bid AND u.role = 'barangay_admin'
+              AND DATE(al.created_at) >= '$retentionDate'";
+
+if ($search)     $baseWhere .= " AND (al.action LIKE '%$search%' OR al.description LIKE '%$search%' OR u.email LIKE '%$search%' OR u.username LIKE '%$search%' OR u.first_name LIKE '%$search%' OR u.last_name LIKE '%$search%' OR CONCAT(u.first_name,' ',u.last_name) LIKE '%$search%' OR CONCAT(u.last_name,' ',u.first_name) LIKE '%$search%' OR CONCAT(u.last_name,', ',u.first_name) LIKE '%$search%')";
+if ($dateFrom)   $baseWhere .= " AND DATE(al.created_at) >= '$dateFrom'";
+if ($dateTo)     $baseWhere .= " AND DATE(al.created_at) <= '$dateTo'";
+if ($userFilter) $baseWhere .= " AND al.user_id = $userFilter";
+
+// Pagination
+$perPage     = 10;
+$currentPage = max(1, (int)($_GET['page'] ?? 1));
+
+$totalRows = (int)$db->query("
+    SELECT COUNT(*)
+    FROM activity_logs al
+    LEFT JOIN users u ON al.user_id = u.id
+    $baseWhere
+")->fetchColumn();
+$totalPages  = max(1, (int)ceil($totalRows / $perPage));
+$currentPage = min($currentPage, $totalPages);
+$offset      = ($currentPage - 1) * $perPage;
+
+$logs = $db->query("
+    SELECT al.id, al.action, al.description, al.created_at,
+           u.first_name, u.last_name, u.username, u.email
+    FROM activity_logs al
+    LEFT JOIN users u ON al.user_id = u.id
+    $baseWhere
+    ORDER BY al.created_at DESC
+    LIMIT $perPage OFFSET $offset
+")->fetchAll();
+
+// Users in this barangay for filter dropdown
+$barangayUsers = $db->query("
+    SELECT DISTINCT u.id, u.first_name, u.last_name, u.username
+    FROM activity_logs al
+    LEFT JOIN users u ON al.user_id = u.id
+    WHERE u.barangay_id = $bid AND u.role = 'barangay_admin'
+    ORDER BY u.first_name
+")->fetchAll();
+
+$actionColors = [
+    'LOGIN'              => 'success',
+    'LOGOUT'             => 'secondary',
+    'ADD_RESIDENT'       => 'primary',
+    'EDIT_RESIDENT'      => 'info',
+    'ARCHIVE_RESIDENT'   => 'warning',
+    'DELETE_RESIDENT'    => 'danger',
+    'ADD_HOUSEHOLD'      => 'primary',
+    'EDIT_HOUSEHOLD'     => 'info',
+    'DELETE_HOUSEHOLD'   => 'danger',
+    'ADD_BLOTTER'        => 'danger',
+    'EDIT_BLOTTER'       => 'warning',
+    'DELETE_BLOTTER'     => 'danger',
+    'ISSUE_CERTIFICATE'  => 'success',
+    'DELETE_CERTIFICATE' => 'danger',
+    'ADD_OFFICIAL'       => 'primary',
+    'EDIT_OFFICIAL'      => 'info',
+    'ARCHIVE_OFFICIAL'   => 'warning',
+    'CHANGE_PASSWORD'    => 'warning',
+    'RESTORE_ARCHIVE'    => 'success',
+    'PERMANENT_DELETE'   => 'danger',
+    'SAVE_REPORT'        => 'info',
+    'SUBMIT_REPORT'      => 'success',
+    'ADD_NOTICE'         => 'primary',
+    'DELETE_NOTICE'      => 'danger',
+    'VIEW_RESIDENT'      => 'light',
+    'VIEW_REPORT'        => 'light',
+];
+
+$pageIcon     = 'bi-clock-history';
+$pageTitle    = 'Activity Log';
+$pageSubtitle = 'Track recent actions performed in the system.';
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+</head>
+<body>
+<?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
+<?php include __DIR__ . '/../includes/topbar.php'; ?>
+
+<div class="main-content">
+
+    <!-- Filters -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="GET" class="d-flex gap-2 flex-wrap align-items-center" id="filterForm">
+                <div class="input-group input-group-sm ac-wrapper" style="width:280px;">
+                    <span class="input-group-text bg-white border-end-0" style="border-color:#dee2e6;">
+                        <i class="bi bi-search text-muted" style="font-size:0.8rem;"></i>
+                    </span>
+                    <input type="text" id="activitySearchInput" name="search" class="form-control form-control-sm border-start-0 border-end-0 ps-0"
+                           style="border-color:#dee2e6;"
+                           placeholder="Name, email, action, description..."
+                           autocomplete="off" value="<?= htmlspecialchars($search) ?>">
+                    <span class="input-group-text bg-white border-start-0 p-0" style="border-color:#dee2e6;">
+                        <span id="activitySearchClear" title="Clear search"
+                              style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#9ca3af;border-radius:4px;<?= $search ? '' : 'visibility:hidden;' ?>"
+                              onmouseover="this.style.color='#dc2626';this.style.background='#fee2e2';"
+                              onmouseout="this.style.color='#9ca3af';this.style.background='transparent';">
+                            <i class="bi bi-x-lg" style="font-size:0.75rem;"></i>
+                        </span>
+                    </span>
+                    <div class="ac-list" id="activityAcList"></div>
+                </div>
+                <div>
+                    <select name="user_id" class="form-select form-select-sm" style="min-width:160px;">
+                        <option value="">All Users</option>
+                        <?php foreach ($barangayUsers as $usr): ?>
+                            <option value="<?= $usr['id'] ?>" <?= $userFilter==$usr['id']?'selected':'' ?>>
+                                <?= htmlspecialchars($usr['first_name'].' '.$usr['last_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <?php
+                    $drpId = 'activity'; $drpDateFrom = $dateFrom; $drpDateTo = $dateTo;
+                    $drpPreset = $activePreset; $drpMinDate = $retentionDate; $drpMaxDate = date('Y-m-d');
+                    include __DIR__ . '/../includes/date_range_picker.php';
+                    ?>
+                    <?php if ($search || $userFilter || $dateFrom || $dateTo): ?>
+                    <a href="?" class="btn btn-sm btn-outline-secondary px-2" title="Clear filters">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div id="logs-table" class="card border-0 shadow-sm" style="border-radius:12px;overflow:hidden;">
+        <div class="card-header bg-white d-flex align-items-center justify-content-between py-2 px-3 border-bottom">
+            <span class="fw-semibold small">
+                Activity Entries
+                <span class="badge bg-secondary ms-1" style="font-size:0.7rem;"><?= number_format($totalRows) ?></span>
+            </span>
+            <span class="text-muted" style="font-size:0.72rem;">All system interactions</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" style="font-size:0.85rem;">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;width:60px;">#</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">User</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Action</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Description</th>
+                        <th class="pe-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;white-space:nowrap;">Date &amp; Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php if (empty($logs)): ?>
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-5">
+                            <i class="bi bi-inbox" style="font-size:2.5rem;opacity:0.25;display:block;margin-bottom:10px;"></i>
+                            No activity records found.
+                        </td>
+                    </tr>
+                <?php else: ?>
+                    <?php foreach ($logs as $log):
+                        $fullName = trim(($log['first_name'] ?? '') . ' ' . ($log['last_name'] ?? '')) ?: 'System';
+                        $initials = strtoupper(substr($log['first_name'] ?? 'S', 0, 1) . substr($log['last_name'] ?? '', 0, 1));
+                    ?>
+                    <tr>
+                        <td class="ps-4 py-3">
+                            <code style="font-size:0.7rem;color:#94a3b8;">#<?= $log['id'] ?></code>
+                        </td>
+                        <td class="py-3">
+                            <div class="d-flex align-items-center gap-2">
+                                <div style="width:34px;height:34px;min-width:34px;background:#e2e8f0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:0.68rem;font-weight:700;">
+                                    <?= $initials ?>
+                                </div>
+                                <div>
+                                    <div style="font-weight:600;font-size:0.82rem;"><?= htmlspecialchars($fullName) ?></div>
+                                    <?php if (!empty($log['email'])): ?>
+                                    <div style="font-size:0.7rem;color:#64748b;"><?= htmlspecialchars($log['email']) ?></div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-3" style="white-space:nowrap;">
+                            <span style="font-size:0.72rem;font-weight:600;color:#1a4f7a;background:#e8f0fe;padding:3px 10px;border-radius:6px;letter-spacing:0.03em;font-family:monospace;">
+                                <?= htmlspecialchars($log['action']) ?>
+                            </span>
+                        </td>
+                        <td class="py-3" style="max-width:320px;font-size:0.8rem;color:#334155;">
+                            <?= htmlspecialchars($log['description'] ?? '—') ?>
+                        </td>
+                        <td class="pe-4 py-3" style="white-space:nowrap;">
+                            <div style="font-size:0.8rem;font-weight:600;"><?= date('M d, Y', strtotime($log['created_at'])) ?></div>
+                            <div style="font-size:0.72rem;color:#94a3b8;"><?= date('h:i A', strtotime($log['created_at'])) ?></div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <?php if ($totalPages > 1):
+        $qp = $_GET; unset($qp['page']);
+        $bq = http_build_query($qp);
+        $bu = '?' . ($bq ? $bq . '&' : '');
+        $page = (int)$currentPage; $totalCount = (int)$totalRows;
+        $paginationBase = $bu; $paginationLabel = 'record';
+        include __DIR__ . '/../includes/pagination.php';
+    endif; ?>
+
+</div><!-- /.main-content -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
+</script>
+
+<script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initAutocomplete('activitySearchInput', 'activityAcList', '<?= BASE_URL ?>/ajax/search_activity_log.php', 'activitySearchClear');
+});
+</script>
+
+<script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initAutocomplete('activitySearchInput', 'activityAcList', '<?= BASE_URL ?>/ajax/search_activity_log.php', 'activitySearchClear');
+});
+</script>
+</body>
+</html>
+

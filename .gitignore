@@ -1,0 +1,36 @@
+# ── Secrets — NEVER commit these ────────────────────────────
+.env
+*.env
+.env.*
+
+# ── Uploads (user files) ─────────────────────────────────────
+uploads/
+
+# ── Composer (regenerate with composer install) ──────────────
+vendor/
+composer.phar
+
+# ── Database dumps ───────────────────────────────────────────
+database/*.sql
+
+# ── Backups ──────────────────────────────────────────────────
+backups/
+*.backup
+*.bak
+
+# ── OS / editor junk ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.agents/
+.qodo/
+
+# ── PHP logs ─────────────────────────────────────────────────
+*.log
+php_errors.log
+# ── TLS / Tailscale — NEVER commit private keys ─────────────
+*.key
+*.pem
+*.p12
+*.pfx
+lgu-server.tail*.ts.net.*
