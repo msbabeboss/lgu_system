@@ -5,27 +5,6 @@ requireRole('super_admin');
 $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 
-// ── Add covering indexes for dashboard queries if not already present ──
-$indexChecks = [
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_status'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_created'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='blotter_cases' AND INDEX_NAME='idx_blotter_brgy_created'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='households' AND INDEX_NAME='idx_households_brgy_status'",
-];
-$indexDDL = [
-    "ALTER TABLE residents ADD INDEX idx_residents_brgy_status (barangay_id, resident_status)",
-    "ALTER TABLE residents ADD INDEX idx_residents_brgy_created (barangay_id, created_at)",
-    "ALTER TABLE blotter_cases ADD INDEX idx_blotter_brgy_created (barangay_id, created_at)",
-    "ALTER TABLE households ADD INDEX idx_households_brgy_status (barangay_id, status)",
-];
-foreach ($indexChecks as $i => $chk) {
-    try {
-        if ((int)$db->query($chk)->fetchColumn() === 0) {
-            $db->exec($indexDDL[$i]);
-        }
-    } catch (\Throwable $e) { /* ignore — index may already exist */ }
-}
-
 $barangays   = $db->query("SELECT * FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
 $selectedBrgy = isset($_GET['barangay_id']) ? (int)$_GET['barangay_id'] : 0;
 
@@ -43,7 +22,6 @@ $resSQL = "SELECT
     SUM(CASE WHEN r.resident_status='Active'       THEN 1 ELSE 0 END) AS active,
     SUM(CASE WHEN r.resident_status='Inactive'     THEN 1 ELSE 0 END) AS inactive,
     SUM(CASE WHEN r.resident_status='Transferred'  THEN 1 ELSE 0 END) AS transferred,
-    SUM(CASE WHEN r.resident_status='Deceased'     THEN 1 ELSE 0 END) AS deceased,
     SUM(CASE WHEN r.is_pwd=1         AND r.resident_status='Active' THEN 1 ELSE 0 END) AS pwd,
     SUM(CASE WHEN r.is_senior=1      AND r.resident_status='Active' THEN 1 ELSE 0 END) AS senior,
     SUM(CASE WHEN r.is_solo_parent=1 AND r.resident_status='Active' THEN 1 ELSE 0 END) AS solo,
@@ -55,11 +33,27 @@ $stats['total_residents']  = (int)$rc['active'];
 $stats['res_active']       = $stats['total_residents'];
 $stats['res_inactive']     = (int)$rc['inactive'];
 $stats['res_transferred']  = (int)$rc['transferred'];
-$stats['res_deceased']     = (int)$rc['deceased'];
 $stats['total_pwd']        = (int)$rc['pwd'];
 $stats['total_senior']     = (int)$rc['senior'];
 $stats['total_solo']       = (int)$rc['solo'];
 $stats['total_4ps']        = (int)$rc['fours'];
+
+// Deceased = residents with status 'Deceased' + legacy archived records (matches brgy admin logic)
+$deceasedSQL = "SELECT COUNT(*) FROM (
+    SELECT r.id FROM residents r
+    WHERE r.resident_status='Deceased'"
+    . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : "")
+    . "
+    UNION
+    SELECT a.record_id FROM archives a
+    INNER JOIN residents r ON r.id=a.record_id"
+    . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : "")
+    . "
+    WHERE a.table_name='residents'
+      AND r.resident_status='Inactive'
+      AND a.data_json LIKE '%Deceased%'
+) AS deceased_combined";
+$stats['res_deceased'] = (int)$db->query($deceasedSQL)->fetchColumn();
 
 // ── Transferred per Barangay ──────────────────────────────
 $transferredPerBrgy = $db->query("

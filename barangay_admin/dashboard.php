@@ -6,27 +6,6 @@ $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 $bid = (int)$u['barangay_id'];
 
-// ── Add covering indexes for dashboard queries if not already present ──
-$indexChecks = [
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_status'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_created'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='blotter_cases' AND INDEX_NAME='idx_blotter_brgy_created'",
-    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='households' AND INDEX_NAME='idx_households_brgy_status'",
-];
-$indexDDL = [
-    "ALTER TABLE residents ADD INDEX idx_residents_brgy_status (barangay_id, resident_status)",
-    "ALTER TABLE residents ADD INDEX idx_residents_brgy_created (barangay_id, created_at)",
-    "ALTER TABLE blotter_cases ADD INDEX idx_blotter_brgy_created (barangay_id, created_at)",
-    "ALTER TABLE households ADD INDEX idx_households_brgy_status (barangay_id, status)",
-];
-foreach ($indexChecks as $i => $chk) {
-    try {
-        if ((int)$db->query($chk)->fetchColumn() === 0) {
-            $db->exec($indexDDL[$i]);
-        }
-    } catch (\Throwable $e) { /* ignore — index may already exist */ }
-}
-
 $brgy = $db->prepare("SELECT * FROM barangays WHERE id=?");
 $brgy->execute([$bid]); $brgy = $brgy->fetch();
 
@@ -177,15 +156,6 @@ if (!$rpt_from && !$rpt_to) {
     $rpt_from = date('Y-m-01');
     $rpt_to   = date('Y-m-d');
 }
-$rpt_clause = ($rpt_from && $rpt_to)
-    ? "AND DATE(created_at) BETWEEN '$rpt_from' AND '$rpt_to'"
-    : ($rpt_from ? "AND DATE(created_at) >= '$rpt_from'" : ($rpt_to ? "AND DATE(created_at) <= '$rpt_to'" : ''));
-
-// Certificates use date_issued (explicit issue date), not created_at
-$rpt_clause_cert = ($rpt_from && $rpt_to)
-    ? "AND date_issued BETWEEN '$rpt_from' AND '$rpt_to'"
-    : ($rpt_from ? "AND date_issued >= '$rpt_from'" : ($rpt_to ? "AND date_issued <= '$rpt_to'" : ''));
-
 // ── Report queries — prepared statements, no string interpolation ─────
 $rptResStmt = $db->prepare(
     "SELECT COUNT(*) FROM residents
@@ -223,12 +193,13 @@ $rptCertBrkStmt = $db->prepare(
 $rptCertBrkStmt->execute([$bid, $rpt_from, $rpt_to]);
 $rpt_certBreakdown = $rptCertBrkStmt->fetchAll();
 
-// Pending certificates (requested but not yet issued)
+// Pending certificates (requested but not yet issued) within date range
 $rptPendingStmt = $db->prepare(
     "SELECT COUNT(*) FROM user_requests
-     WHERE barangay_id=? AND status='pending' AND request_type LIKE '%certificate%'"
+     WHERE barangay_id=? AND status='pending' AND request_type LIKE '%certificate%'
+       AND DATE(created_at) BETWEEN ? AND ?"
 );
-$rptPendingStmt->execute([$bid]);
+$rptPendingStmt->execute([$bid, $rpt_from, $rpt_to]);
 $rpt_pending_certs = (int)$rptPendingStmt->fetchColumn();
 
 // ── Batch request counts — 2 queries instead of 10 ──────────────────
