@@ -18,10 +18,11 @@ $pageSubtitle = 'ARIMA-based population growth projections.';
 <head>
   <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="<?= csrfMeta() ?>">
   <title>Forecasting — <?= APP_NAME ?></title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+  <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
   <style>
     .fc-filter-label { font-size:.72rem; color:#6b7280; margin-bottom:3px; font-weight:500; }
     .fc-filter-val   { font-size:.82rem; font-weight:600; color:#111827; }
@@ -269,6 +270,31 @@ document.getElementById('runBtn').addEventListener('click', runForecast);
 // Auto-run on page load
 runForecast();
 
+/* ── Save Forecast Records (fire-and-forget) ──────────────── */
+async function saveForecastRecords(data, type) {
+  try {
+    await fetch('<?= BASE_URL ?>/ajax/save_forecast.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+      },
+      body: JSON.stringify({
+        barangay_id:     BRGY_ID,
+        series_type:     type,
+        forecast_months: parseInt(document.getElementById('selMonths').value),
+        lookback_months: 24,
+        arima_order:     (data.arima_order || []).join(','),
+        engine:          data.engine ?? 'ARIMA',
+        summary:         data.summary,
+        forecast:        data.forecast,
+        history:         data.history,
+        generated_at:    data.generated_at ?? new Date().toISOString(),
+      })
+    });
+  } catch (e) { /* silent — never block the UI */ }
+}
+
 async function runForecast() {
   const series = document.getElementById('selSeries').value;
   const months = document.getElementById('selMonths').value;
@@ -297,6 +323,7 @@ async function runForecast() {
     drawMeta(series, d, months);
     drawTable(series, d);
     drawExplain(series, d, months);
+    saveForecastRecords(d, series);
 
   } catch (e) {
     showError('Cannot connect to the ARIMA API. Make sure it is running.');

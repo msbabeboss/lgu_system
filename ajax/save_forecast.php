@@ -27,7 +27,8 @@ $db   = Database::getInstance()->getConnection();
 $user = currentUser();
 
 // ── Sanitise inputs ───────────────────────────────────────────
-$brgid       = max(0, (int)($body['barangay_id']     ?? 0));
+$brgidRaw    = (int)($body['barangay_id']     ?? 0);
+$brgid       = $brgidRaw > 0 ? $brgidRaw : null;
 $series      = $body['series_type']                  ?? '';
 $months      = max(1, min(12, (int)($body['forecast_months'] ?? 6)));
 $lookback    = max(6, min(36, (int)($body['lookback_months'] ?? 24)));
