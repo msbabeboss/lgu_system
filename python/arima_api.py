@@ -90,7 +90,13 @@ def fetch_monthly_series(series_type: str, barangay_id: int, lookback_months: in
         target = now - relativedelta(months=i)
         ym     = target.strftime("%Y-%m")
         label  = target.strftime("%b %Y")
-        bf     = f" AND barangay_id = {int(barangay_id)}" if barangay_id else ""
+
+        if barangay_id:
+            bf     = " AND barangay_id = %s"
+            params = (ym, int(barangay_id))
+        else:
+            bf     = ""
+            params = (ym,)
 
         if series_type == "residents":
             sql = f"SELECT COUNT(*) FROM residents WHERE DATE_FORMAT(created_at,'%Y-%m')=%s{bf}"
@@ -102,7 +108,7 @@ def fetch_monthly_series(series_type: str, barangay_id: int, lookback_months: in
             conn.close()
             raise ValueError(f"Unknown type: {series_type}")
 
-        cur.execute(sql, (ym,))
+        cur.execute(sql, params)
         results.append({"label": label, "value": int(cur.fetchone()[0]), "ym": ym})
 
     cur.close()
