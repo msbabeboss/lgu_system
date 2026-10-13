@@ -5,6 +5,27 @@ requireRole('super_admin');
 $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 
+// ── Add covering indexes for dashboard queries if not already present ──
+$indexChecks = [
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_status'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_created'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='blotter_cases' AND INDEX_NAME='idx_blotter_brgy_created'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='households' AND INDEX_NAME='idx_households_brgy_status'",
+];
+$indexDDL = [
+    "ALTER TABLE residents ADD INDEX idx_residents_brgy_status (barangay_id, resident_status)",
+    "ALTER TABLE residents ADD INDEX idx_residents_brgy_created (barangay_id, created_at)",
+    "ALTER TABLE blotter_cases ADD INDEX idx_blotter_brgy_created (barangay_id, created_at)",
+    "ALTER TABLE households ADD INDEX idx_households_brgy_status (barangay_id, status)",
+];
+foreach ($indexChecks as $i => $chk) {
+    try {
+        if ((int)$db->query($chk)->fetchColumn() === 0) {
+            $db->exec($indexDDL[$i]);
+        }
+    } catch (\Throwable $e) { /* ignore — index may already exist */ }
+}
+
 $barangays   = $db->query("SELECT * FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
 $selectedBrgy = isset($_GET['barangay_id']) ? (int)$_GET['barangay_id'] : 0;
 
@@ -13,16 +34,32 @@ $whereB = $selectedBrgy ? "WHERE barangay_id=$selectedBrgy"   : "WHERE 1=1";
 $andB   = $selectedBrgy ? " AND r.barangay_id=$selectedBrgy"  : "";
 
 // ── Overview ──────────────────────────────────────────────
-$stats['total_residents']  = $db->query("SELECT COUNT(*) FROM residents r $where AND r.resident_status='Active'")->fetchColumn();
 $stats['total_households'] = $db->query("SELECT COUNT(*) FROM households $whereB")->fetchColumn();
 $stats['total_blotter']    = $db->query("SELECT COUNT(*) FROM blotter_cases $whereB")->fetchColumn();
 $stats['total_certs']      = $db->query("SELECT COUNT(*) FROM certificates" . ($selectedBrgy ? " WHERE barangay_id=$selectedBrgy" : ""))->fetchColumn();
 
-// ── Resident Status Breakdown ─────────────────────────────
-$stats['res_active']      = $db->query("SELECT COUNT(*) FROM residents r $where AND r.resident_status='Active'")->fetchColumn();
-$stats['res_inactive']    = $db->query("SELECT COUNT(*) FROM residents r $where AND r.resident_status='Inactive'")->fetchColumn();
-$stats['res_transferred'] = $db->query("SELECT COUNT(*) FROM residents r $where AND r.resident_status='Transferred'")->fetchColumn();
-$stats['res_deceased']    = $db->query("SELECT COUNT(*) FROM residents r $where AND r.resident_status='Deceased'")->fetchColumn();
+// ── Consolidated resident counts — 1 query instead of 9 ─────────────
+$resSQL = "SELECT
+    SUM(CASE WHEN r.resident_status='Active'       THEN 1 ELSE 0 END) AS active,
+    SUM(CASE WHEN r.resident_status='Inactive'     THEN 1 ELSE 0 END) AS inactive,
+    SUM(CASE WHEN r.resident_status='Transferred'  THEN 1 ELSE 0 END) AS transferred,
+    SUM(CASE WHEN r.resident_status='Deceased'     THEN 1 ELSE 0 END) AS deceased,
+    SUM(CASE WHEN r.is_pwd=1         AND r.resident_status='Active' THEN 1 ELSE 0 END) AS pwd,
+    SUM(CASE WHEN r.is_senior=1      AND r.resident_status='Active' THEN 1 ELSE 0 END) AS senior,
+    SUM(CASE WHEN r.is_solo_parent=1 AND r.resident_status='Active' THEN 1 ELSE 0 END) AS solo,
+    SUM(CASE WHEN r.is_4ps=1         AND r.resident_status='Active' THEN 1 ELSE 0 END) AS fours
+FROM residents r $where";
+$rc = $db->query($resSQL)->fetch();
+
+$stats['total_residents']  = (int)$rc['active'];
+$stats['res_active']       = $stats['total_residents'];
+$stats['res_inactive']     = (int)$rc['inactive'];
+$stats['res_transferred']  = (int)$rc['transferred'];
+$stats['res_deceased']     = (int)$rc['deceased'];
+$stats['total_pwd']        = (int)$rc['pwd'];
+$stats['total_senior']     = (int)$rc['senior'];
+$stats['total_solo']       = (int)$rc['solo'];
+$stats['total_4ps']        = (int)$rc['fours'];
 
 // ── Transferred per Barangay ──────────────────────────────
 $transferredPerBrgy = $db->query("
@@ -38,12 +75,6 @@ $transferredPerBrgy = $db->query("
     ORDER BY total_transferred DESC
 ")->fetchAll();
 
-// ── Sectors ───────────────────────────────────────────────
-$stats['total_pwd']    = $db->query("SELECT COUNT(*) FROM residents r $where AND r.is_pwd=1 AND r.resident_status='Active'")->fetchColumn();
-$stats['total_senior'] = $db->query("SELECT COUNT(*) FROM residents r $where AND r.is_senior=1 AND r.resident_status='Active'")->fetchColumn();
-$stats['total_solo']   = $db->query("SELECT COUNT(*) FROM residents r $where AND r.is_solo_parent=1 AND r.resident_status='Active'")->fetchColumn();
-$stats['total_4ps']    = $db->query("SELECT COUNT(*) FROM residents r $where AND r.is_4ps=1 AND r.resident_status='Active'")->fetchColumn();
-
 // ── Demographics ──────────────────────────────────────────
 $genderQ = $db->query("SELECT gender, COUNT(*) as cnt FROM residents r $where AND r.resident_status='Active' GROUP BY gender");
 $genderData = ['Male'=>0,'Female'=>0];
@@ -53,29 +84,44 @@ $voterData = ['Registered'=>0,'Not Registered'=>0];
 $voterQ = $db->query("SELECT voter_status, COUNT(*) as cnt FROM residents r $where AND r.resident_status='Active' GROUP BY voter_status");
 foreach ($voterQ->fetchAll() as $r) $voterData[$r['voter_status']] = $r['cnt'];
 
-// ── Employment ────────────────────────────────────────────
+// ── Employment — batch query instead of 5 individual queries ──────────
+$empSQL  = "SELECT occupation_status, COUNT(*) AS cnt
+            FROM residents r $where
+            AND r.occupation_status IN ('Employed','Unemployed','Self-Employed','Student','Retired')
+            AND r.resident_status='Active'
+            GROUP BY occupation_status";
+$empMap  = array_column($db->query($empSQL)->fetchAll(), 'cnt', 'occupation_status');
 $empStatuses = ['Employed','Unemployed','Self-Employed','Student','Retired'];
-$empValues = [];
-foreach ($empStatuses as $es) {
-    $empValues[] = (int)$db->query("SELECT COUNT(*) FROM residents r $where AND r.occupation_status='$es' AND r.resident_status='Active'")->fetchColumn();
-}
+$empValues   = array_map(fn($s) => (int)($empMap[$s] ?? 0), $empStatuses);
 
-// ── Population Trend (12 months) ─────────────────────────
+// ── Population Trend (12 months) — 1 query instead of 12 ─────────────
+$trendStart = date('Y-m-01', strtotime('-11 months'));
+$popSQL     = "SELECT DATE_FORMAT(r.created_at,'%Y-%m') AS ym, COUNT(*) AS cnt
+               FROM residents r
+               WHERE r.created_at >= '$trendStart'"
+             . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : "")
+             . " GROUP BY ym";
+$popMap     = array_column($db->query($popSQL)->fetchAll(), 'cnt', 'ym');
 $popLabels = []; $popValues = [];
-for ($i=11;$i>=0;$i--) {
-    $month = date('Y-m',strtotime("-$i months"));
-    $cnt = $db->query("SELECT COUNT(*) FROM residents r WHERE DATE_FORMAT(r.created_at,'%Y-%m')='$month'" . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : ""))->fetchColumn();
-    $popLabels[] = date('M Y',strtotime("-$i months"));
-    $popValues[] = (int)$cnt;
+for ($i=11; $i>=0; $i--) {
+    $ym = date('Y-m', strtotime("-$i months"));
+    $popLabels[] = date('M Y', strtotime("-$i months"));
+    $popValues[] = (int)($popMap[$ym] ?? 0);
 }
 
-// ── Blotter Trend (6 months) ──────────────────────────────
+// ── Blotter Trend (6 months) — 1 query instead of 6 ─────────────────
+$blotterStart = date('Y-m-01', strtotime('-5 months'));
+$blotterSQL   = "SELECT DATE_FORMAT(created_at,'%Y-%m') AS ym, COUNT(*) AS cnt
+                 FROM blotter_cases
+                 WHERE created_at >= '$blotterStart'"
+               . ($selectedBrgy ? " AND barangay_id=$selectedBrgy" : "")
+               . " GROUP BY ym";
+$blotterMap   = array_column($db->query($blotterSQL)->fetchAll(), 'cnt', 'ym');
 $blotterLabels = []; $blotterValues = [];
-for ($i=5;$i>=0;$i--) {
-    $month = date('Y-m',strtotime("-$i months"));
-    $cnt = $db->query("SELECT COUNT(*) FROM blotter_cases WHERE DATE_FORMAT(created_at,'%Y-%m')='$month'" . ($selectedBrgy ? " AND barangay_id=$selectedBrgy" : ""))->fetchColumn();
-    $blotterLabels[] = date('M Y',strtotime("-$i months"));
-    $blotterValues[] = (int)$cnt;
+for ($i=5; $i>=0; $i--) {
+    $ym = date('Y-m', strtotime("-$i months"));
+    $blotterLabels[] = date('M Y', strtotime("-$i months"));
+    $blotterValues[] = (int)($blotterMap[$ym] ?? 0);
 }
 
 // ── Certificates by type ──────────────────────────────────
@@ -85,14 +131,19 @@ $certTypes = []; $certCounts = [];
 foreach ($certQ as $r) { $certTypes[] = $r['certificate_type']; $certCounts[] = $r['cnt']; }
 $topCert = !empty($certTypes) ? $certTypes[0] : '—';
 
-// ── Top Barangays ─────────────────────────────────────────
-$brgyStats = $db->query("
-    SELECT b.barangay_name,
-        (SELECT COUNT(*) FROM residents r WHERE r.barangay_id=b.id AND r.resident_status='Active') as residents,
-        (SELECT COUNT(*) FROM households h WHERE h.barangay_id=b.id) as households,
-        (SELECT COUNT(*) FROM blotter_cases bc WHERE bc.barangay_id=b.id) as blotter
-    FROM barangays b WHERE b.status='active' ORDER BY residents DESC LIMIT 5
-")->fetchAll();
+// ── Top Barangays — JOIN instead of correlated subqueries ─────────────
+$brgyStatsSQL = "SELECT b.barangay_name,
+    COALESCE(r_cnt.residents, 0)  AS residents,
+    COALESCE(h_cnt.households, 0) AS households,
+    COALESCE(bl_cnt.blotter, 0)   AS blotter
+FROM barangays b
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS residents FROM residents WHERE resident_status='Active' GROUP BY barangay_id) r_cnt ON r_cnt.barangay_id = b.id
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS households FROM households GROUP BY barangay_id) h_cnt ON h_cnt.barangay_id = b.id
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS blotter FROM blotter_cases GROUP BY barangay_id) bl_cnt ON bl_cnt.barangay_id = b.id
+WHERE b.status='active'"
+. ($selectedBrgy ? " AND b.id=$selectedBrgy" : "")
+. " ORDER BY residents DESC LIMIT 5";
+$brgyStats = $db->query($brgyStatsSQL)->fetchAll();
 
 $pageTitle = '';
 ?>
@@ -111,7 +162,7 @@ $pageSubtitle = '';
 <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 <style>
 /* ── Section Titles ───────────────────────── */
 .sec-title {
@@ -188,7 +239,7 @@ $pageSubtitle = '';
 
 /* ── Welcome Banner ───────────────────────── */
 .welcome-banner {
-    background-image: url('<?= BASE_URL ?>/assets/img/bgimage.png');
+    background-image: url('<?= BASE_URL ?>/assets/img/bgimage.jpg');
     background-size: cover;
     background-position: center;
     border-radius: 18px;
@@ -609,9 +660,10 @@ html.dark-mode .welcome-banner {
 
 </div><!-- /main-content -->
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
+<script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer>
+document.addEventListener('DOMContentLoaded', function() {
 const tt = { ticks:{font:{size:10}}, grid:{color:'#f0f0f0'} };
 const pctTip = { callbacks:{ label: ctx => { const t=ctx.dataset.data.reduce((a,b)=>a+b,0); return ` ${ctx.label}: ${ctx.parsed.toLocaleString()} (${t?((ctx.parsed/t)*100).toFixed(1):0}%)`; } } };
 
@@ -704,6 +756,7 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('sh
     tick();
     setInterval(tick, 1000);
 })();
+}); // end DOMContentLoaded
 </script>
 </body>
 </html>

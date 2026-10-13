@@ -6,22 +6,63 @@ $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 $bid = (int)$u['barangay_id'];
 
+// ── Add covering indexes for dashboard queries if not already present ──
+$indexChecks = [
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_status'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='residents' AND INDEX_NAME='idx_residents_brgy_created'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='blotter_cases' AND INDEX_NAME='idx_blotter_brgy_created'",
+    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='households' AND INDEX_NAME='idx_households_brgy_status'",
+];
+$indexDDL = [
+    "ALTER TABLE residents ADD INDEX idx_residents_brgy_status (barangay_id, resident_status)",
+    "ALTER TABLE residents ADD INDEX idx_residents_brgy_created (barangay_id, created_at)",
+    "ALTER TABLE blotter_cases ADD INDEX idx_blotter_brgy_created (barangay_id, created_at)",
+    "ALTER TABLE households ADD INDEX idx_households_brgy_status (barangay_id, status)",
+];
+foreach ($indexChecks as $i => $chk) {
+    try {
+        if ((int)$db->query($chk)->fetchColumn() === 0) {
+            $db->exec($indexDDL[$i]);
+        }
+    } catch (\Throwable $e) { /* ignore — index may already exist */ }
+}
+
 $brgy = $db->prepare("SELECT * FROM barangays WHERE id=?");
 $brgy->execute([$bid]); $brgy = $brgy->fetch();
 
 // ── Overview ──────────────────────────────────────────────
 $q = fn($sql,$p=[]) => (function() use($db,$sql,$p){ $s=$db->prepare($sql);$s->execute($p);return $s->fetchColumn(); })();
-$stats['residents']   = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND resident_status='Active'",[$bid]);
 $stats['households']  = $q("SELECT COUNT(*) FROM households WHERE barangay_id=? AND status='Active'",[$bid]);
 $stats['blotter']     = $q("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=? AND status != 'Archived'",[$bid]);
 $stats['certs']       = $q("SELECT COUNT(*) FROM certificates WHERE barangay_id=?",[$bid]);
 
-// ── Resident Status Breakdown ─────────────────────────────
-$stats['res_active']     = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND resident_status='Active'",[$bid]);
-$stats['res_inactive']   = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND resident_status='Inactive'",[$bid]);
-$stats['res_transferred']= $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND resident_status='Transferred'",[$bid]);
+// ── Consolidated residents counts (replaces 8 individual queries) ─────
+$resCountStmt = $db->prepare(
+    "SELECT
+        SUM(CASE WHEN resident_status='Active'       THEN 1 ELSE 0 END) AS active,
+        SUM(CASE WHEN resident_status='Inactive'     THEN 1 ELSE 0 END) AS inactive,
+        SUM(CASE WHEN resident_status='Transferred'  THEN 1 ELSE 0 END) AS transferred,
+        SUM(CASE WHEN is_pwd=1         AND resident_status='Active' THEN 1 ELSE 0 END) AS pwd,
+        SUM(CASE WHEN is_senior=1      AND resident_status='Active' THEN 1 ELSE 0 END) AS senior,
+        SUM(CASE WHEN is_solo_parent=1 AND resident_status='Active' THEN 1 ELSE 0 END) AS solo,
+        SUM(CASE WHEN is_4ps=1         AND resident_status='Active' THEN 1 ELSE 0 END) AS fours
+     FROM residents
+     WHERE barangay_id=?"
+);
+$resCountStmt->execute([$bid]);
+$rc = $resCountStmt->fetch();
+
+$stats['residents']       = (int)$rc['active'];
+$stats['res_active']      = $stats['residents'];
+$stats['res_inactive']    = (int)$rc['inactive'];
+$stats['res_transferred'] = (int)$rc['transferred'];
+$stats['pwd']             = (int)$rc['pwd'];
+$stats['senior']          = (int)$rc['senior'];
+$stats['solo']            = (int)$rc['solo'];
+$stats['4ps']             = (int)$rc['fours'];
+
 // Deceased = residents with status 'Deceased' + legacy archived records where archive_reason indicates deceased
-$stats['res_deceased']   = $q(
+$stats['res_deceased'] = $q(
     "SELECT COUNT(*) FROM (
         SELECT r.id FROM residents r WHERE r.barangay_id=? AND r.resident_status='Deceased'
         UNION
@@ -33,12 +74,6 @@ $stats['res_deceased']   = $q(
     ) AS deceased_combined",
     [$bid, $bid]
 );
-
-// ── Sectors ───────────────────────────────────────────────
-$stats['pwd']    = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND is_pwd=1 AND resident_status='Active'",[$bid]);
-$stats['senior'] = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND is_senior=1 AND resident_status='Active'",[$bid]);
-$stats['solo']   = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND is_solo_parent=1 AND resident_status='Active'",[$bid]);
-$stats['4ps']    = $q("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND is_4ps=1 AND resident_status='Active'",[$bid]);
 
 // ── Officials ─────────────────────────────────────────────
 $stats['officials_active']  = $q("SELECT COUNT(*) FROM officials WHERE barangay_id=? AND status='active'",[$bid]);
@@ -55,13 +90,17 @@ $stats['households_active']   = $stats['households'];
 $stats['households_archived'] = $q("SELECT COUNT(*) FROM households WHERE barangay_id=? AND status='Archived'",[$bid]);
 $stats['households_members']  = $q("SELECT COALESCE(SUM(total_members),0) FROM households WHERE barangay_id=? AND status='Active'",[$bid]);
 
-// Household income distribution
+// Household income distribution — batch query instead of 5 individual queries
 $incomeRanges = ['Below ₱10,000','₱10,000 - ₱20,000','₱20,001 - ₱40,000','₱40,001 - ₱60,000','Above ₱60,000'];
-$incomeCounts = [];
-foreach ($incomeRanges as $ir) {
-    $s = $db->prepare("SELECT COUNT(*) FROM households WHERE barangay_id=? AND income_range=? AND status='Active'");
-    $s->execute([$bid,$ir]); $incomeCounts[] = (int)$s->fetchColumn();
-}
+$incomeStmt = $db->prepare(
+    "SELECT income_range, COUNT(*) AS cnt
+     FROM households
+     WHERE barangay_id=? AND status='Active' AND income_range IS NOT NULL
+     GROUP BY income_range"
+);
+$incomeStmt->execute([$bid]);
+$incomeMap = array_column($incomeStmt->fetchAll(), 'cnt', 'income_range');
+$incomeCounts = array_map(fn($r) => (int)($incomeMap[$r] ?? 0), $incomeRanges);
 
 // ── Pending Requests ──────────────────────────────────────
 $stats['requests_pending'] = $q("SELECT COUNT(*) FROM user_requests WHERE barangay_id=? AND status='pending'",[$bid]);
@@ -77,32 +116,50 @@ $vQ->execute([$bid]);
 $voterData = ['Registered'=>0,'Not Registered'=>0];
 foreach ($vQ->fetchAll() as $r) $voterData[$r['voter_status']] = $r['cnt'];
 
-// ── Employment ────────────────────────────────────────────
+// ── Employment — batch query instead of 5 individual queries ──────────
+$empStmt = $db->prepare(
+    "SELECT occupation_status, COUNT(*) AS cnt
+     FROM residents
+     WHERE barangay_id=? AND resident_status='Active'
+     GROUP BY occupation_status"
+);
+$empStmt->execute([$bid]);
+$empMap = array_column($empStmt->fetchAll(), 'cnt', 'occupation_status');
 $empStatuses = ['Employed','Unemployed','Self-Employed','Student','Retired'];
-$empCounts = [];
-foreach ($empStatuses as $es) {
-    $s = $db->prepare("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND occupation_status=? AND resident_status='Active'");
-    $s->execute([$bid,$es]); $empCounts[] = (int)$s->fetchColumn();
-}
+$empCounts   = array_map(fn($s) => (int)($empMap[$s] ?? 0), $empStatuses);
 
-// ── Population Trend (12 months) ─────────────────────────
+// ── Population Trend (12 months) — 1 query instead of 12 ─────────────
+$trendStart = date('Y-m-01', strtotime('-11 months'));
+$popTrendStmt = $db->prepare(
+    "SELECT DATE_FORMAT(created_at,'%Y-%m') AS ym, COUNT(*) AS cnt
+     FROM residents
+     WHERE barangay_id=? AND created_at >= ?
+     GROUP BY ym"
+);
+$popTrendStmt->execute([$bid, $trendStart]);
+$popMap = array_column($popTrendStmt->fetchAll(), 'cnt', 'ym');
 $popLabels = []; $popValues = [];
-for ($i=11;$i>=0;$i--) {
-    $month = date('Y-m',strtotime("-$i months"));
-    $s = $db->prepare("SELECT COUNT(*) FROM residents WHERE barangay_id=? AND DATE_FORMAT(created_at,'%Y-%m')=?");
-    $s->execute([$bid,$month]);
-    $popLabels[] = date('M Y',strtotime("-$i months"));
-    $popValues[] = (int)$s->fetchColumn();
+for ($i=11; $i>=0; $i--) {
+    $ym = date('Y-m', strtotime("-$i months"));
+    $popLabels[] = date('M Y', strtotime("-$i months"));
+    $popValues[] = (int)($popMap[$ym] ?? 0);
 }
 
-// ── Blotter Trend (6 months) ──────────────────────────────
+// ── Blotter Trend (6 months) — 1 query instead of 6 ─────────────────
+$blotterStart = date('Y-m-01', strtotime('-5 months'));
+$blotterTrendStmt = $db->prepare(
+    "SELECT DATE_FORMAT(created_at,'%Y-%m') AS ym, COUNT(*) AS cnt
+     FROM blotter_cases
+     WHERE barangay_id=? AND created_at >= ? AND status != 'Archived'
+     GROUP BY ym"
+);
+$blotterTrendStmt->execute([$bid, $blotterStart]);
+$blotterMap = array_column($blotterTrendStmt->fetchAll(), 'cnt', 'ym');
 $blotterLabels = []; $blotterValues = [];
-for ($i=5;$i>=0;$i--) {
-    $month = date('Y-m',strtotime("-$i months"));
-    $s = $db->prepare("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=? AND DATE_FORMAT(created_at,'%Y-%m')=? AND status != 'Archived'");
-    $s->execute([$bid,$month]);
-    $blotterLabels[] = date('M Y',strtotime("-$i months"));
-    $blotterValues[] = (int)$s->fetchColumn();
+for ($i=5; $i>=0; $i--) {
+    $ym = date('Y-m', strtotime("-$i months"));
+    $blotterLabels[] = date('M Y', strtotime("-$i months"));
+    $blotterValues[] = (int)($blotterMap[$ym] ?? 0);
 }
 
 // ── Certificates by type ──────────────────────────────────
@@ -129,17 +186,71 @@ $rpt_clause_cert = ($rpt_from && $rpt_to)
     ? "AND date_issued BETWEEN '$rpt_from' AND '$rpt_to'"
     : ($rpt_from ? "AND date_issued >= '$rpt_from'" : ($rpt_to ? "AND date_issued <= '$rpt_to'" : ''));
 
-$rpt_new_residents = (int)$db->query("SELECT COUNT(*) FROM residents WHERE barangay_id=$bid AND resident_status='Active' $rpt_clause")->fetchColumn();
-$rpt_docs_issued   = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE barangay_id=$bid $rpt_clause_cert")->fetchColumn();
-$rpt_blotter       = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=$bid AND status != 'Archived' $rpt_clause")->fetchColumn();
-$rpt_households    = (int)$db->query("SELECT COUNT(*) FROM households WHERE barangay_id=$bid AND status='Active'")->fetchColumn();
+// ── Report queries — prepared statements, no string interpolation ─────
+$rptResStmt = $db->prepare(
+    "SELECT COUNT(*) FROM residents
+     WHERE barangay_id=? AND resident_status='Active'
+       AND DATE(created_at) BETWEEN ? AND ?"
+);
+$rptResStmt->execute([$bid, $rpt_from, $rpt_to]);
+$rpt_new_residents = (int)$rptResStmt->fetchColumn();
+
+$rptCertStmt = $db->prepare(
+    "SELECT COUNT(*) FROM certificates
+     WHERE barangay_id=? AND date_issued BETWEEN ? AND ?"
+);
+$rptCertStmt->execute([$bid, $rpt_from, $rpt_to]);
+$rpt_docs_issued = (int)$rptCertStmt->fetchColumn();
+
+$rptBlotterStmt = $db->prepare(
+    "SELECT COUNT(*) FROM blotter_cases
+     WHERE barangay_id=? AND status != 'Archived'
+       AND DATE(created_at) BETWEEN ? AND ?"
+);
+$rptBlotterStmt->execute([$bid, $rpt_from, $rpt_to]);
+$rpt_blotter = (int)$rptBlotterStmt->fetchColumn();
+
+// rpt_households = same as active households already fetched
+$rpt_households = (int)$stats['households'];
 
 // Certificate breakdown for period
-$rpt_certQ = $db->query("SELECT certificate_type, COUNT(*) as cnt FROM certificates WHERE barangay_id=$bid $rpt_clause_cert GROUP BY certificate_type ORDER BY cnt DESC");
-$rpt_certBreakdown = $rpt_certQ->fetchAll();
+$rptCertBrkStmt = $db->prepare(
+    "SELECT certificate_type, COUNT(*) as cnt
+     FROM certificates
+     WHERE barangay_id=? AND date_issued BETWEEN ? AND ?
+     GROUP BY certificate_type ORDER BY cnt DESC"
+);
+$rptCertBrkStmt->execute([$bid, $rpt_from, $rpt_to]);
+$rpt_certBreakdown = $rptCertBrkStmt->fetchAll();
 
 // Pending certificates (requested but not yet issued)
-$rpt_pending_certs = (int)$db->query("SELECT COUNT(*) FROM user_requests WHERE barangay_id=$bid AND status='pending' AND request_type LIKE '%certificate%'")->fetchColumn();
+$rptPendingStmt = $db->prepare(
+    "SELECT COUNT(*) FROM user_requests
+     WHERE barangay_id=? AND status='pending' AND request_type LIKE '%certificate%'"
+);
+$rptPendingStmt->execute([$bid]);
+$rpt_pending_certs = (int)$rptPendingStmt->fetchColumn();
+
+// ── Batch request counts — 2 queries instead of 10 ──────────────────
+$reqTypes = ['password_change'=>'Password Change','edit_information'=>'Edit Info','new_user'=>'New User','access_request'=>'Access','reset_2fa'=>'Reset 2FA'];
+
+$reqTotalStmt = $db->prepare(
+    "SELECT request_type, COUNT(*) AS cnt
+     FROM user_requests
+     WHERE barangay_id=?
+     GROUP BY request_type"
+);
+$reqTotalStmt->execute([$bid]);
+$reqTotalMap = array_column($reqTotalStmt->fetchAll(), 'cnt', 'request_type');
+
+$reqPendingStmt = $db->prepare(
+    "SELECT request_type, COUNT(*) AS cnt
+     FROM user_requests
+     WHERE barangay_id=? AND status='pending'
+     GROUP BY request_type"
+);
+$reqPendingStmt->execute([$bid]);
+$reqPendingMap = array_column($reqPendingStmt->fetchAll(), 'cnt', 'request_type');
 
 // ── Recent ────────────────────────────────────────────────
 $rRes = $db->prepare("SELECT * FROM residents WHERE barangay_id=? ORDER BY created_at DESC LIMIT 5");
@@ -165,7 +276,7 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 <style>
 /* slim topbar */
 .topbar{height:80px !important;}
@@ -193,7 +304,7 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
 /* ── Welcome Banner ───────────────────────── */
 .welcome-banner {
-    background-image: url('<?= BASE_URL ?>/assets/img/bgimage.png');
+    background-image: url('<?= BASE_URL ?>/assets/img/bgimage.jpg');
     background-size: cover;
     background-position: center;
     border-radius: 18px;
@@ -574,11 +685,10 @@ html.dark-mode .welcome-banner {
   <div class="sec-title"><i class="bi bi-inbox-fill text-warning"></i>Requests to LGU</div>
   <div class="row g-2 mb-3">
     <?php
-    $reqTypes = ['password_change'=>'Password Change','edit_information'=>'Edit Info','new_user'=>'New User','access_request'=>'Access','reset_2fa'=>'Reset 2FA'];
     $reqColors = ['password_change'=>['#e65100','#fff3e0','#ffd9a8'],'edit_information'=>['#1a4f7a','#e8f4fb','#b0d8f0'],'new_user'=>['#1a4f7a','#d8edf7','#90d0e8'],'access_request'=>['#64748b','#f1f5f9','#e2e8f0'],'reset_2fa'=>['#c62828','#fce4ec','#f48fb1']];
     foreach ($reqTypes as $rt => $rl):
-        $cnt = $q("SELECT COUNT(*) FROM user_requests WHERE barangay_id=? AND request_type=?",[$bid,$rt]);
-        $pnd = $q("SELECT COUNT(*) FROM user_requests WHERE barangay_id=? AND request_type=? AND status='pending'",[$bid,$rt]);
+        $cnt = (int)($reqTotalMap[$rt]   ?? 0);
+        $pnd = (int)($reqPendingMap[$rt] ?? 0);
         [$ic,$bg,$ibg] = $reqColors[$rt];
     ?>
     <div class="col-6 col-md">
@@ -783,9 +893,10 @@ html.dark-mode .welcome-banner {
 
 </div><!-- /main-content -->
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
+<script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer>
+document.addEventListener('DOMContentLoaded', function() {
 const tt = { ticks:{font:{size:10}}, grid:{color:'#f0f0f0'} };
 const pctTip = { callbacks:{ label: ctx => { const t=ctx.dataset.data.reduce((a,b)=>a+b,0); return ` ${ctx.label}: ${ctx.parsed.toLocaleString()} (${t?((ctx.parsed/t)*100).toFixed(1):0}%)`; } } };
 
@@ -905,6 +1016,7 @@ function toggleSidebar(){document.getElementById('sidebar').classList.toggle('sh
     tick();
     setInterval(tick, 1000);
 })();
+}); // end DOMContentLoaded
 </script>
 </body>
 </html>
