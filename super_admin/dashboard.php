@@ -39,21 +39,33 @@ $stats['total_solo']       = (int)$rc['solo'];
 $stats['total_4ps']        = (int)$rc['fours'];
 
 // Deceased = residents with status 'Deceased' + legacy archived records (matches brgy admin logic)
-$deceasedSQL = "SELECT COUNT(*) FROM (
-    SELECT r.id FROM residents r
-    WHERE r.resident_status='Deceased'"
-    . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : "")
-    . "
-    UNION
-    SELECT a.record_id FROM archives a
-    INNER JOIN residents r ON r.id=a.record_id"
-    . ($selectedBrgy ? " AND r.barangay_id=$selectedBrgy" : "")
-    . "
-    WHERE a.table_name='residents'
-      AND r.resident_status='Inactive'
-      AND a.data_json LIKE '%Deceased%'
-) AS deceased_combined";
-$stats['res_deceased'] = (int)$db->query($deceasedSQL)->fetchColumn();
+// Uses a prepared statement with bound parameters to eliminate string-interpolation hazard.
+if ($selectedBrgy) {
+    $deceasedStmt = $db->prepare("SELECT COUNT(*) FROM (
+        SELECT r.id FROM residents r
+        WHERE r.resident_status='Deceased' AND r.barangay_id=?
+        UNION
+        SELECT a.record_id FROM archives a
+        INNER JOIN residents r ON r.id=a.record_id AND r.barangay_id=?
+        WHERE a.table_name='residents'
+          AND r.resident_status='Inactive'
+          AND a.data_json LIKE '%Deceased%'
+    ) AS deceased_combined");
+    $deceasedStmt->execute([$selectedBrgy, $selectedBrgy]);
+} else {
+    $deceasedStmt = $db->prepare("SELECT COUNT(*) FROM (
+        SELECT r.id FROM residents r
+        WHERE r.resident_status='Deceased'
+        UNION
+        SELECT a.record_id FROM archives a
+        INNER JOIN residents r ON r.id=a.record_id
+        WHERE a.table_name='residents'
+          AND r.resident_status='Inactive'
+          AND a.data_json LIKE '%Deceased%'
+    ) AS deceased_combined");
+    $deceasedStmt->execute();
+}
+$stats['res_deceased'] = (int)$deceasedStmt->fetchColumn();
 
 // ── Transferred per Barangay ──────────────────────────────
 $transferredPerBrgy = $db->query("
@@ -126,14 +138,17 @@ foreach ($certQ as $r) { $certTypes[] = $r['certificate_type']; $certCounts[] = 
 $topCert = !empty($certTypes) ? $certTypes[0] : '—';
 
 // ── Top Barangays — JOIN instead of correlated subqueries ─────────────
+// When a specific barangay is selected, scope each derived table to that barangay
+// so MySQL can use the composite indexes directly instead of materialising full-table scans.
+$brgySubFilter = $selectedBrgy ? " AND barangay_id=$selectedBrgy" : "";
 $brgyStatsSQL = "SELECT b.barangay_name,
     COALESCE(r_cnt.residents, 0)  AS residents,
     COALESCE(h_cnt.households, 0) AS households,
     COALESCE(bl_cnt.blotter, 0)   AS blotter
 FROM barangays b
-LEFT JOIN (SELECT barangay_id, COUNT(*) AS residents FROM residents WHERE resident_status='Active' GROUP BY barangay_id) r_cnt ON r_cnt.barangay_id = b.id
-LEFT JOIN (SELECT barangay_id, COUNT(*) AS households FROM households GROUP BY barangay_id) h_cnt ON h_cnt.barangay_id = b.id
-LEFT JOIN (SELECT barangay_id, COUNT(*) AS blotter FROM blotter_cases GROUP BY barangay_id) bl_cnt ON bl_cnt.barangay_id = b.id
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS residents FROM residents WHERE resident_status='Active'$brgySubFilter GROUP BY barangay_id) r_cnt ON r_cnt.barangay_id = b.id
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS households FROM households WHERE 1=1$brgySubFilter GROUP BY barangay_id) h_cnt ON h_cnt.barangay_id = b.id
+LEFT JOIN (SELECT barangay_id, COUNT(*) AS blotter FROM blotter_cases WHERE 1=1$brgySubFilter GROUP BY barangay_id) bl_cnt ON bl_cnt.barangay_id = b.id
 WHERE b.status='active'"
 . ($selectedBrgy ? " AND b.id=$selectedBrgy" : "")
 . " ORDER BY residents DESC LIMIT 5";
