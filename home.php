@@ -424,7 +424,7 @@ if ($urlResetToken) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
     <title>Centralized LGU Information Management System</title>
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=2.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=4.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -441,12 +441,15 @@ if ($urlResetToken) {
                     <p>Information Management System</p>
                 </div>
             </div>
-            <nav class="nav-menu">
+            <nav class="nav-menu" id="navMenu">
                 <a href="#home"     class="nav-link active" data-page="page-home">Home</a>
                 <a href="#features" class="nav-link"        data-page="page-features">Features</a>
                 <a href="#about"    class="nav-link"        data-page="page-about">About</a>
                 <a href="#contact"  class="nav-link"        data-page="page-contact">Contact</a>
             </nav>
+            <button class="nav-hamburger" id="navHamburger" onclick="toggleMobileNav()" aria-label="Menu">
+                <i class="fas fa-bars" id="hamburgerIcon"></i>
+            </button>
         </div>
     </div>
 </header>
@@ -454,7 +457,7 @@ if ($urlResetToken) {
 <!-- ========== PAGE: HOME ========== -->
 <div class="page-section active" id="page-home">
 <?php
-$bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE_URL . '/assets/img/bgimage.png';
+$bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE_URL . '/assets/img/bgimage.jpg';
 ?>
 <section class="hero-section" id="home">
 
@@ -570,6 +573,9 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
                             </div>
 
                             <form class="login-form" id="loginForm" onsubmit="submitLogin(event)">
+                                <!-- Honeypot fields: prevent browser password manager from attaching to our fields -->
+                                <input type="text"     style="display:none;" tabindex="-1" aria-hidden="true">
+                                <input type="password" style="display:none;" tabindex="-1" aria-hidden="true">
                                 <?php if ($loginError): ?>
                                 <div class="alert alert-error" id="loginAlert">
                                     <i class="fas fa-exclamation-circle"></i>
@@ -591,14 +597,18 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
                                 <div class="form-group">
                                     <label for="username"><i class="fas fa-user"></i> Username / Email</label>
                                     <input type="text" id="username" name="username" required
-                                           placeholder="Enter your username or email" autocomplete="username">
+                                           placeholder="Enter your username or email">
                                 </div>
                                 <div class="form-group">
                                     <label for="password"><i class="fas fa-key"></i> Password</label>
-                                    <div class="password-wrapper">
+                                    <div style="position:relative;display:block;width:100%;">
                                         <input type="password" id="password" name="password" required
-                                               placeholder="Enter your password" autocomplete="current-password">
-                                        <button type="button" class="toggle-pw" onclick="togglePassword()" title="Show/Hide">
+                                               placeholder="Enter your password"
+                                               style="width:100%;padding-right:48px;">
+                                        <button type="button"
+                                                onclick="togglePassword()"
+                                                title="Show/Hide password"
+                                                style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#5483B3;font-size:0.95rem;padding:0;z-index:10;line-height:1;">
                                             <i class="fas fa-eye" id="pwIcon"></i>
                                         </button>
                                     </div>
@@ -995,6 +1005,29 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
 </div><!-- /page-contact -->
 
 <script>
+// ── Mobile nav hamburger toggle ───────────────────────────
+function toggleMobileNav() {
+    var menu = document.getElementById('navMenu');
+    var icon = document.getElementById('hamburgerIcon');
+    if (!menu) return;
+    var isOpen = menu.classList.toggle('nav-open');
+    if (icon) {
+        icon.className = isOpen ? 'fas fa-times' : 'fas fa-bars';
+    }
+}
+// Close mobile nav when a link is clicked
+document.addEventListener('DOMContentLoaded', function () {
+    var links = document.querySelectorAll('#navMenu .nav-link');
+    links.forEach(function (a) {
+        a.addEventListener('click', function () {
+            var menu = document.getElementById('navMenu');
+            var icon = document.getElementById('hamburgerIcon');
+            if (menu) menu.classList.remove('nav-open');
+            if (icon) icon.className = 'fas fa-bars';
+        });
+    });
+});
+
 // ── AJAX Login ────────────────────────────────────────────
 function submitLogin(e) {
     e.preventDefault();
@@ -1211,6 +1244,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Load live stats from database ─────────────────────
     function animateCount(el, target) {
+        if (target === null || target === undefined) {
+            el.textContent = 'N/A';
+            return;
+        }
         const duration = 1400;
         const start    = performance.now();
         const from     = 0;
@@ -1224,18 +1261,27 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(step);
     }
 
+    function setStatUnavailable(id) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = 'N/A';
+    }
+
     fetch('<?= BASE_URL ?>/ajax/get_landing_stats.php')
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                animateCount(document.getElementById('totalResidents'), data.residents);
-                animateCount(document.getElementById('activeUsers'),    data.users);
-                animateCount(document.getElementById('recordsStored'),  data.records);
-                animateCount(document.getElementById('totalBarangays'), data.barangays);
+                animateCount(document.getElementById('totalResidents'), data.residents ?? null);
+                animateCount(document.getElementById('activeUsers'),    data.users     ?? null);
+                animateCount(document.getElementById('recordsStored'),  data.records   ?? null);
+                animateCount(document.getElementById('totalBarangays'), data.barangays ?? null);
+            } else {
+                // DB returned an error — show unavailable, never show stale/fake numbers
+                ['totalResidents','activeUsers','recordsStored','totalBarangays'].forEach(setStatUnavailable);
             }
         })
         .catch(() => {
-            // silently fail — keep showing —
+            // Network or parse error — show unavailable
+            ['totalResidents','activeUsers','recordsStored','totalBarangays'].forEach(setStatUnavailable);
         });
 
     const initial = '<?= $initialPanel ?>';

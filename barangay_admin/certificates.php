@@ -44,34 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_issue'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrfOrAbort();
     $action = $_POST['action'] ?? '';
-    if ($action === 'issue') {
-        $resId   = (int)$_POST['resident_id'];
-        $type    = $_POST['certificate_type'];
-        $purpose = sanitize($_POST['purpose']);
-        $date    = date('Y-m-d');
-        $stmt = $db->prepare("INSERT INTO certificates (barangay_id,resident_id,certificate_type,purpose,issued_by,date_issued) VALUES (?,?,?,?,?,?)");
-        $stmt->execute([$bid, $resId, $type, $purpose, $u['id'], $date]);
-        $certId = $db->lastInsertId();
-        $rname2 = $db->prepare("SELECT CONCAT(first_name,' ',last_name) FROM residents WHERE id=?");
-        $rname2->execute([$resId]);
-        $rname2 = $rname2->fetchColumn() ?: "resident #$resId";
-        logActivity($u['id'], 'ISSUE_CERTIFICATE', 'Certificates', "Issued $type certificate for $rname2");
-        // Bell notification — issuing admin + barangay peers
-        $certBellMsg2 = "📜 <strong>$type</strong> certificate issued for <strong>$rname2</strong>";
-        sendNotification($u['id'], $certBellMsg2, 'success', 'certificate');
-        $certPeers2 = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id != ?");
-        $certPeers2->execute([$bid, $u['id']]);
-        foreach ($certPeers2->fetchAll(PDO::FETCH_ASSOC) as $cp2) {
-            sendNotification((int)$cp2['id'], $certBellMsg2, 'success', 'certificate');
-        }
-        // Email confirmation to the issuing admin
-        if ($u['email']) {
-            $brgyName = $db->query("SELECT barangay_name FROM barangays WHERE id=$bid")->fetchColumn() ?: '';
-            sendCertificateIssuedEmail($u['email'], $u['name'], $rname2, $type, $purpose, $brgyName);
-        }
-        flash('cert', "Certificate issued successfully.", 'success');
-        redirect(BASE_URL . "/barangay_admin/certificates.php");
-    }
+    // NOTE: 'action=issue' (non-AJAX form-POST) has been removed.
+    // All certificate issuance goes through the AJAX handler above (ajax_issue).
+    // This prevents the double-insert/double-notification that occurred when both
+    // handlers ran on a JS failure, retry, or non-JS form submission.
     if ($action === 'archive_cert') {
         $certId = (int)$_POST['cert_id'];
         $row = $db->prepare("SELECT * FROM certificates WHERE id=? AND barangay_id=?");
@@ -182,7 +158,7 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>

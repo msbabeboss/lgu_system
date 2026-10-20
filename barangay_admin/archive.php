@@ -150,7 +150,7 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -478,13 +478,6 @@ function submitRestoreNotice() {
 }
 </script>
 <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
-
-<script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initAutocomplete('archiveSearchInput', 'archiveAcList', '<?= BASE_URL ?>/ajax/search_archive.php', 'archiveSearchClear');
-});
-</script>
 
 <script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
 <script>

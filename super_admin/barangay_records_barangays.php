@@ -56,7 +56,7 @@ $pageSubtitle = 'All registered barangays with summary counts.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>
@@ -94,15 +94,18 @@ $pageSubtitle = 'All registered barangays with summary counts.';
 
     <!-- Filters -->
     <div style="background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.06);border:1px solid #e0f0e4;padding:14px 18px;margin-bottom:14px;" class="no-print">
-        <form method="GET" class="d-flex gap-2 flex-wrap align-items-center">
+        <form method="GET" class="d-flex gap-2 flex-wrap align-items-center" id="brgyFilterForm">
             <input type="text" name="search" class="form-control form-control-sm" style="width:220px;"
                    placeholder="Search name or municipality..." value="<?= htmlspecialchars($search) ?>">
-            <select name="status" class="form-select form-select-sm" style="width:140px;" onchange="this.form.submit()">
+            <!-- onchange removed: browser form-state restoration on back-nav was
+                 firing onchange before the user interacted, causing an unexpected
+                 self-redirect on page load. Submit is now explicit only. -->
+            <select name="status" class="form-select form-select-sm" style="width:140px;">
                 <option value="">All Status</option>
                 <option value="active"   <?= $statusFilter==='active'  ?'selected':'' ?>>Active</option>
                 <option value="inactive" <?= $statusFilter==='inactive'?'selected':'' ?>>Inactive</option>
             </select>
-            <select name="sort" class="form-select form-select-sm" style="width:150px;" onchange="this.form.submit()">
+            <select name="sort" class="form-select form-select-sm" style="width:150px;">
                 <option value="name"         <?= $sort==='name'        ?'selected':'' ?>>Sort: Name</option>
                 <option value="municipality" <?= $sort==='municipality'?'selected':'' ?>>Sort: Municipality</option>
                 <option value="date"         <?= $sort==='date'        ?'selected':'' ?>>Sort: Date</option>

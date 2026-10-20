@@ -7,6 +7,14 @@ $u   = currentUser();
 $bid = (int)$u['barangay_id'];
 $id  = (int)($_GET['id'] ?? 0);
 
+// ── FAST ACCESS CHECK — before any slow query ─────────────
+// Single indexed PK + barangay_id lookup, < 1 ms.
+// Denies immediately on missing/invalid/cross-barangay IDs.
+if (!$id) { http_response_code(404); die('<p style="font-family:sans-serif;padding:2rem;">Certificate not found.</p>'); }
+$_ownCheck = $db->prepare("SELECT id FROM certificates WHERE id = ? AND barangay_id = ? LIMIT 1");
+$_ownCheck->execute([$id, $bid]);
+if (!$_ownCheck->fetchColumn()) { http_response_code(403); die('<p style="font-family:sans-serif;padding:2rem;">Access denied.</p>'); }
+
 $stmt = $db->prepare("
     SELECT c.*, r.first_name, r.middle_name, r.last_name, r.suffix,
            r.age, r.gender, r.civil_status, r.birthdate, r.photo,

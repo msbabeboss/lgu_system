@@ -136,13 +136,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $old = $cur->fetchColumn();
                 if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
 
-                $fname = 'user_' . $u['id'] . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($file['tmp_name'], $photoDir . $fname)) {
+                // Resize to 200×200px max and save as WebP (falls back to JPEG if WebP unavailable)
+                $baseName = 'user_' . $u['id'] . '_' . time();
+                try {
+                    $fname = resizeAndSaveImage($file['tmp_name'], $mime, $photoDir, $baseName, 200, 200, 85);
                     $db->prepare("UPDATE users SET profile_photo=? WHERE id=?")->execute([$fname, $u['id']]);
                     $_SESSION['user_photo'] = $fname;
                     logActivity($u['id'], 'UPDATE_PROFILE_PHOTO', 'Settings', 'Updated profile photo');
                     flash('ba_settings', 'Profile photo updated successfully.', 'success');
-                } else {
+                } catch (\Throwable $e) {
                     flash('ba_settings', 'Failed to save the uploaded file. Please try again.', 'danger');
                 }
             }
@@ -326,7 +328,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         .settings-wrap {
             display: flex;

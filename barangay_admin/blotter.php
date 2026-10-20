@@ -250,11 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $notifType = 'info';
         }
         sendNotification($u['id'], $notifMsg, $notifType, 'transaction');
-        $blotterPeers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id != ?");
-        $blotterPeers->execute([$bid, $u['id']]);
-        foreach ($blotterPeers->fetchAll(PDO::FETCH_ASSOC) as $peer) {
-            sendNotification((int)$peer['id'], $notifMsg, $notifType, 'transaction');
-        }
+        notifyBarangayAdmins($bid, $notifMsg, $notifType, 'transaction', $u['id']);
 
         // Email super admins when a NEW blotter case is filed
         if ($action === 'add') {
@@ -407,7 +403,7 @@ $pageSubtitle = 'Record and track blotter cases and complaints.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         .btn-xs { padding:2px 8px; font-size:0.75rem; }
         .priority-card { border:2px solid #dee2e6; border-radius:10px; padding:10px 16px; cursor:pointer; transition:all 0.2s; text-align:center; }

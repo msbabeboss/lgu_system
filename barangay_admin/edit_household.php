@@ -7,7 +7,21 @@ $db  = Database::getInstance()->getConnection();
 $u   = currentUser();
 $bid = (int)$u['barangay_id'];
 
-// Safe migrations
+// ── FAST ACCESS CHECK — first, before migrations and any slow query ──────
+// Deny immediately if the household ID is missing or doesn't belong to this barangay.
+// Uses PK + barangay_id index — single-row lookup, < 1 ms.
+$hhId = (int)($_GET['id'] ?? 0);
+if (!$hhId) {
+    redirect(BASE_URL . '/barangay_admin/households.php');
+}
+$_ownCheck = $db->prepare("SELECT id FROM households WHERE id = ? AND barangay_id = ? AND status != 'Archived' LIMIT 1");
+$_ownCheck->execute([$hhId, $bid]);
+if (!$_ownCheck->fetch()) {
+    flash('hh', 'Household not found or already archived.', 'danger');
+    redirect(BASE_URL . '/barangay_admin/households.php');
+}
+
+// Safe migrations (run only after ownership is confirmed)
 foreach ([
     "ALTER TABLE addresses ADD COLUMN region VARCHAR(100) NULL AFTER id",
     "ALTER TABLE addresses ADD COLUMN zip_code VARCHAR(10) NULL",
@@ -18,13 +32,7 @@ foreach ([
     "ALTER TABLE households ADD COLUMN archive_reason VARCHAR(255) NULL",
 ] as $sql) { try { $db->exec($sql); } catch (PDOException $e) {} }
 
-// Require a valid household ID
-$hhId = (int)($_GET['id'] ?? 0);
-if (!$hhId) {
-    redirect(BASE_URL . '/barangay_admin/households.php');
-}
-
-// Fetch household (must belong to this barangay and be active)
+// Fetch full household data (ownership already confirmed above)
 $hhStmt = $db->prepare(
     "SELECT h.*, a.region as addr_region, a.province as addr_province, a.city as addr_city,
                 a.barangay as addr_barangay, a.zip_code as addr_zip,
@@ -35,6 +43,7 @@ $hhStmt = $db->prepare(
 );
 $hhStmt->execute([$hhId, $bid]);
 $hh = $hhStmt->fetch();
+// Ownership already confirmed by fast check above; $hh cannot be null here.
 if (!$hh) {
     flash('hh', 'Household not found or already archived.', 'danger');
     redirect(BASE_URL . '/barangay_admin/households.php');
@@ -247,7 +256,7 @@ $pageSubtitle = 'Update household information.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         .field-label {
             font-size: 0.78rem;

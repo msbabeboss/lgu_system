@@ -275,6 +275,9 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
 /* ── Welcome Banner ───────────────────────── */
 .welcome-banner {
+    background-image: url('<?= BASE_URL ?>/assets/img/bgimage.webp');
+    background-image: -webkit-image-set(url('<?= BASE_URL ?>/assets/img/bgimage.webp') 1x);
+    /* JPG fallback for browsers without WebP support */
     background-image: url('<?= BASE_URL ?>/assets/img/bgimage.jpg');
     background-size: cover;
     background-position: center;

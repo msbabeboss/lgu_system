@@ -6,6 +6,20 @@ $db  = Database::getInstance()->getConnection();
 $u   = currentUser();
 $bid = (int)$u['barangay_id'];
 
+$resId = (int)($_GET['resident_id'] ?? 0);
+
+// ── FAST ACCESS CHECK — before barangay/officials queries ────────────────
+// Confirm the resident exists and belongs to this barangay in a single
+// indexed PK + barangay_id lookup (< 1 ms) before any slow work begins.
+if ($resId) {
+    $_ownCheck = $db->prepare("SELECT id FROM residents WHERE id = ? AND barangay_id = ? AND resident_status = 'Active' LIMIT 1");
+    $_ownCheck->execute([$resId, $bid]);
+    if (!$_ownCheck->fetchColumn()) {
+        // Invalid or cross-barangay resident ID — bail out immediately
+        redirect(BASE_URL . '/barangay_admin/certificates.php');
+    }
+}
+
 $brgyRow = $db->prepare("SELECT * FROM barangays WHERE id=?");
 $brgyRow->execute([$bid]);
 $brgyRow  = $brgyRow->fetch();
@@ -19,7 +33,7 @@ foreach ($offQ->fetchAll() as $o) {
     if (stripos($o['position'],'punong') !== false || stripos($o['position'],'captain') !== false) $punong = $o['full_name'];
 }
 
-$resId = (int)($_GET['resident_id'] ?? 0);
+// $resId already set and ownership-checked above.
 $res   = null;
 if ($resId) {
     $rs = $db->prepare("SELECT r.*, a.purok, a.street, a.barangay as addr_barangay, a.city FROM residents r LEFT JOIN addresses a ON r.address_id=a.id WHERE r.id=? AND r.barangay_id=?");

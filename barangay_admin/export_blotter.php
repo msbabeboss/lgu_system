@@ -91,6 +91,12 @@ if (isset($_GET['format']) && $_GET['format'] === 'csv') {
 // ── Single case PDF/Print export ─────────────────────────────────────────
 $id = (int)($_GET['id'] ?? 0);
 
+// ── FAST ACCESS CHECK — before the heavy 5-table JOIN ────────────────────
+if (!$id) { http_response_code(404); die('<p style="font-family:sans-serif;padding:2rem;">Case not found.</p>'); }
+$_ownCheck = $db->prepare("SELECT id FROM blotter_cases WHERE id = ? AND barangay_id = ? LIMIT 1");
+$_ownCheck->execute([$id, $bid]);
+if (!$_ownCheck->fetchColumn()) { http_response_code(403); die('<p style="font-family:sans-serif;padding:2rem;">Access denied.</p>'); }
+
 $stmt = $db->prepare("SELECT bc.*, b.barangay_name, b.municipality, b.province,
     COALESCE(CONCAT(c.last_name,', ',c.first_name,' ',COALESCE(c.middle_name,'')), bc.complainant_name_manual) as complainant_name,
     COALESCE(CONCAT(r.last_name,', ',r.first_name,' ',COALESCE(r.middle_name,'')), bc.respondent_name_manual)  as respondent_name,

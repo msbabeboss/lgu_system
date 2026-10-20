@@ -250,9 +250,9 @@ $pageSubtitle = 'ARIMA-based population growth projections.';
 
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
+<script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer>
 const PROXY   = '<?= BASE_URL ?>/ajax/get_arima_forecast.php';
 const BRGY_ID = <?= $bid ?>;
 

@@ -37,7 +37,7 @@ try {
     try {
         $totalBarangays = (int)$db->query("SELECT COUNT(*) FROM barangays")->fetchColumn();
     } catch (\Throwable $e) {
-        $totalBarangays = 53; // fallback to known count
+        $totalBarangays = null; // do not fake a count
     }
 
     echo json_encode([
@@ -45,14 +45,16 @@ try {
         'residents'  => $totalResidents,
         'users'      => $activeUsers,
         'records'    => $recordsStored,
-        'barangays'  => $totalBarangays,
+        'barangays'  => $totalBarangays, // null if barangays table query failed
     ]);
 
 } catch (Exception $e) {
+    error_log('[get_landing_stats] ' . $e->getMessage());
     echo json_encode([
         'success'   => false,
-        'residents' => 0,
-        'users'     => 0,
-        'records'   => 0,
+        'residents' => null,
+        'users'     => null,
+        'records'   => null,
+        'barangays' => null,
     ]);
 }

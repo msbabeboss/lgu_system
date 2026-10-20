@@ -5,15 +5,17 @@ requireRole('super_admin');
 $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 
-// Safe migration
-try { $db->exec("ALTER TABLE residents ADD COLUMN IF NOT EXISTS email VARCHAR(150) NULL"); } catch (PDOException $e) {}
-
-// Require barangay selection
+// ── FAST ID CHECK — before migration and any slow query ──────────────────
 $brgFilter = (int)($_GET['barangay_id'] ?? 0);
 if (!$brgFilter) { redirect(BASE_URL . '/super_admin/barangay_records.php'); }
-$brgyRow = $db->prepare("SELECT barangay_name, municipality FROM barangays WHERE id=? AND status='active'");
-$brgyRow->execute([$brgFilter]);
-$brgyRow = $brgyRow->fetch();
+$_brgyCheck = $db->prepare("SELECT barangay_name, municipality FROM barangays WHERE id=? AND status='active' LIMIT 1");
+$_brgyCheck->execute([$brgFilter]);
+$brgyRow = $_brgyCheck->fetch();
+if (!$brgyRow) { redirect(BASE_URL . '/super_admin/barangay_records.php'); }
+
+// Safe migration — runs only after the ID is confirmed valid
+try { $db->exec("ALTER TABLE residents ADD COLUMN IF NOT EXISTS email VARCHAR(150) NULL"); } catch (PDOException $e) {}
+// $brgyRow already fetched by the fast check above.
 if (!$brgyRow) { redirect(BASE_URL . '/super_admin/barangay_records.php'); }
 $brgyLabel = htmlspecialchars($brgyRow['barangay_name'] . ($brgyRow['municipality'] ? ' — '.$brgyRow['municipality'] : ''));
 
@@ -79,7 +81,7 @@ $pageSubtitle = 'Households of ' . htmlspecialchars($brgyRow['barangay_name']);
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>

@@ -9,6 +9,13 @@ $bid = (int)$u['barangay_id'];
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { redirect(BASE_URL . '/barangay_admin/residents.php'); }
 
+// ── FAST ACCESS CHECK — must be first, before any slow query ──────────────
+// Deny immediately if the resident doesn't belong to this barangay.
+// Uses the PK + barangay_id index — single-row lookup, < 1 ms.
+$_ownCheck = $db->prepare("SELECT id FROM residents WHERE id = ? AND barangay_id = ? LIMIT 1");
+$_ownCheck->execute([$id, $bid]);
+if (!$_ownCheck->fetch()) { redirect(BASE_URL . '/barangay_admin/residents.php'); }
+
 // ── Handle household assignment POST (modal form) ─────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'assign_household') {
     verifyCsrfOrAbort();
@@ -102,6 +109,8 @@ $stmt = $db->prepare("
 ");
 $stmt->execute([$id, $bid]);
 $res = $stmt->fetch();
+// Ownership already confirmed by fast check above; $res cannot be null here.
+// Defensive fallback kept in case of direct DB inconsistency.
 if (!$res) { redirect(BASE_URL . '/barangay_admin/residents.php'); }
 
 // Fetch household info
@@ -211,7 +220,7 @@ $pageSubtitle = htmlspecialchars($displayName);
     <title><?= htmlspecialchars($displayName) ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
     <style>
         /* ── Info card ── */
@@ -1170,9 +1179,21 @@ $(document).ready(function () {
     });
 });
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
+/* html2pdf and xlsx are loaded on demand — only when the user clicks the button */
+var _html2pdfLoaded = false;
+var _xlsxLoaded = false;
+
+function loadScript(src) {
+    return new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+
 function printProfile() {
     window.print();
 }
@@ -1183,30 +1204,43 @@ function downloadPDF() {
     btn.innerHTML = '<i class="bi bi-hourglass-split" style="font-size:0.82rem;"></i>';
     btn.disabled = true;
 
-    document.querySelectorAll('.print-header').forEach(el => el.style.display = 'block');
-    document.querySelectorAll('.no-print').forEach(el => el.style.display = 'none');
+    var ready = _html2pdfLoaded
+        ? Promise.resolve()
+        : loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js')
+              .then(function() { _html2pdfLoaded = true; });
 
-    const element = document.getElementById('printArea');
-    const filename = 'Resident_Profile_<?= preg_replace('/[^a-zA-Z0-9]/', '_', $displayName) ?>_<?= date('Ymd') ?>.pdf';
+    ready.then(function() {
+        document.querySelectorAll('.print-header').forEach(el => el.style.display = 'block');
+        document.querySelectorAll('.no-print').forEach(el => el.style.display = 'none');
 
-    const opt = {
-        margin:       [12, 10, 12, 10],
-        filename:     filename,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: false },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-    };
+        const element = document.getElementById('printArea');
+        const filename = 'Resident_Profile_<?= preg_replace('/[^a-zA-Z0-9]/', '_', $displayName) ?>_<?= date('Ymd') ?>.pdf';
 
-    html2pdf().set(opt).from(element).save().then(() => {
-        document.querySelectorAll('.print-header').forEach(el => el.style.display = '');
-        document.querySelectorAll('.no-print').forEach(el => el.style.display = '');
-        btn.innerHTML = origIcon;
-        btn.disabled = false;
+        const opt = {
+            margin:       [12, 10, 12, 10],
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true, logging: false },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        html2pdf().set(opt).from(element).save().then(() => {
+            document.querySelectorAll('.print-header').forEach(el => el.style.display = '');
+            document.querySelectorAll('.no-print').forEach(el => el.style.display = '');
+            btn.innerHTML = origIcon;
+            btn.disabled = false;
+        });
     });
 }
 
 function downloadExcel() {
+    var ready = _xlsxLoaded
+        ? Promise.resolve()
+        : loadScript('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js')
+              .then(function() { _xlsxLoaded = true; });
+
+    ready.then(function() {
     const wb = XLSX.utils.book_new();
 
     /* ── Sheet 1: Personal Information ── */
@@ -1284,6 +1318,7 @@ function downloadExcel() {
     <?php endif; ?>
 
     XLSX.writeFile(wb, 'Resident_<?= preg_replace('/[^a-zA-Z0-9]/', '_', $displayName) ?>_<?= date('Ymd') ?>.xlsx');
+    }); // end ready.then
 }
 </script>
 </body>

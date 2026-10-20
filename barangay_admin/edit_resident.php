@@ -10,6 +10,13 @@ $bid = (int)$u['barangay_id'];
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { redirect(BASE_URL . '/barangay_admin/residents.php'); }
 
+// ── FAST ACCESS CHECK — must be first, before any slow query ──────────────
+// Deny immediately if the resident doesn't belong to this barangay.
+// Uses the PK + barangay_id index — single-row lookup, < 1 ms.
+$_ownCheck = $db->prepare("SELECT id FROM residents WHERE id = ? AND barangay_id = ? LIMIT 1");
+$_ownCheck->execute([$id, $bid]);
+if (!$_ownCheck->fetch()) { redirect(BASE_URL . '/barangay_admin/residents.php'); }
+
 // ── Safe migrations ────────────────────────────────────────
 // Add 'Pending Transfer' to resident_status ENUM
 try { $db->exec("ALTER TABLE residents MODIFY COLUMN resident_status ENUM('Active','Inactive','Deceased','Transferred','Pending Transfer') DEFAULT 'Active'"); } catch (PDOException $e) {}
@@ -66,7 +73,7 @@ $activeHouseholdsStmt = $db->prepare(
 $activeHouseholdsStmt->execute([$bid]);
 $activeHouseholds = $activeHouseholdsStmt->fetchAll();
 
-// Load resident data
+// Load full resident data (ownership already confirmed above)
 $stmt = $db->prepare("SELECT r.*, a.region, a.province, a.city, a.barangay as addr_barangay, a.street, a.purok, a.zone, a.zip_code FROM residents r LEFT JOIN addresses a ON r.address_id = a.id WHERE r.id=? AND r.barangay_id=?");
 $stmt->execute([$id, $bid]);
 $res = $stmt->fetch();
@@ -213,11 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Notify own barangay
         $notifMsg = "Resident <strong>$fname $lname</strong> marked as deceased.";
         sendNotification($u['id'], $notifMsg, 'warning', 'resident');
-        $peers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id!=?");
-        $peers->execute([$bid, $u['id']]);
-        foreach ($peers->fetchAll(PDO::FETCH_COLUMN) as $peerId) {
-            sendNotification((int)$peerId, $notifMsg, 'warning', 'resident');
-        }
+        notifyBarangayAdmins($bid, $notifMsg, 'warning', 'resident', $u['id']);
 
     } elseif ($status === 'Transferred') {
 
@@ -233,11 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $notifMsg = "Resident <strong>$resFullName</strong> transferred outside Talavera (no barangay notification required).";
             sendNotification($u['id'], $notifMsg, 'info', 'resident');
-            $peers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id!=?");
-            $peers->execute([$bid, $u['id']]);
-            foreach ($peers->fetchAll(PDO::FETCH_COLUMN) as $peerId) {
-                sendNotification((int)$peerId, $notifMsg, 'info', 'resident');
-            }
+            notifyBarangayAdmins($bid, $notifMsg, 'info', 'resident', $u['id']);
 
         } else {
             // ── Within Talavera: look up destination barangay ID ──────────
@@ -271,11 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Notify origin barangay (acting admin + peers)
                     $originMsg = "🔄 Transfer request submitted for <strong>$resFullName</strong> → <strong>$transferTo</strong>. Awaiting destination barangay approval.";
                     sendNotification($u['id'], $originMsg, 'info', 'transaction');
-                    $peers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id!=?");
-                    $peers->execute([$bid, $u['id']]);
-                    foreach ($peers->fetchAll(PDO::FETCH_COLUMN) as $peerId) {
-                        sendNotification((int)$peerId, $originMsg, 'info', 'transaction');
-                    }
+                    notifyBarangayAdmins($bid, $originMsg, 'info', 'transaction', $u['id']);
 
                     // Notify destination barangay admins
                     $destMsg = "📋 Incoming Transfer Request: <strong>$resFullName</strong> from <strong>$originName</strong> is requesting transfer to your barangay. Please review and approve or reject in the <strong>Residents → Transferred</strong> tab.";
@@ -300,11 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Notify own barangay
         $notifMsg = "Resident updated: <strong>$fname $lname</strong>";
         sendNotification($u['id'], $notifMsg, 'info', 'resident');
-        $peers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id!=?");
-        $peers->execute([$bid, $u['id']]);
-        foreach ($peers->fetchAll(PDO::FETCH_COLUMN) as $peerId) {
-            sendNotification((int)$peerId, $notifMsg, 'info', 'resident');
-        }
+        notifyBarangayAdmins($bid, $notifMsg, 'info', 'resident', $u['id']);
     }
 
     // ── Household Assignment Update ────────────────────────────────────────
@@ -432,7 +423,7 @@ $fullName  = trim($res['last_name'] . ', ' . $res['first_name'] . ($res['middle_
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
     <style>
         /* ── Select2 skin to match Bootstrap ── */

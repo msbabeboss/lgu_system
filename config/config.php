@@ -75,6 +75,12 @@ if (!headers_sent()) {
     header('ngrok-skip-browser-warning: true');
 }
 
+// ── HSTS — sent over HTTPS only (PHP-level fallback for when Apache
+//    mod_headers env=HTTPS condition doesn't fire behind a reverse proxy) ──
+if ($isHttps && !headers_sent()) {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+
 // Autoload helpers
 require_once BASE_PATH . '/config/database.php';
 require_once BASE_PATH . '/helpers/functions.php';

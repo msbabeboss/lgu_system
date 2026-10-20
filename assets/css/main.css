@@ -713,10 +713,38 @@ body.sidebar-collapsed .modal {
     padding-left: var(--sidebar-collapsed-width) !important;
 }
 
-/* Smooth transitions */
+/* Smooth transitions — sidebar/topbar only for collapse */
 .sidebar        { transition: width 0.28s cubic-bezier(.4,0,.2,1), transform 0.3s ease; }
 .topbar         { transition: padding-left 0.28s cubic-bezier(.4,0,.2,1); }
 .main-content   { transition: margin-left 0.28s cubic-bezier(.4,0,.2,1); }
+
+/* ── Page fade-in — opacity only, NO transform (transform creates stacking context that flickers fixed elements) */
+.main-content {
+    animation: pageContentIn 0.2s ease both;
+    contain: layout style;
+}
+@keyframes pageContentIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* Force sidebar & topbar onto isolated GPU layers — zero repaint from content changes */
+.sidebar {
+    isolation: isolate;
+    will-change: transform;
+    transform: translate3d(0,0,0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: layout style;
+}
+.topbar {
+    isolation: isolate;
+    will-change: transform;
+    transform: translate3d(0,0,0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: layout style;
+}
 .modal          { transition: padding-left 0.28s cubic-bezier(.4,0,.2,1); }
 
 /* Bootstrap tooltip must float above sidebar */
@@ -1423,3 +1451,81 @@ html.dark-mode .form-check-input[type="radio"]:checked {
     font-size: .75rem;
     border-radius: 7px;
 }
+
+/* ── Sidebar Settings sub-menu ───────────────────────────────────────────── */
+
+/* Parent wrapper */
+.nav-has-sub { position: relative; }
+
+/* The Settings trigger row */
+.nav-parent-link {
+    display: flex !important;
+    align-items: center;
+    cursor: pointer !important;
+}
+
+/* Chevron arrow */
+.nav-sub-arrow {
+    font-size: 0.62rem;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: transform 0.22s ease;
+    opacity: 0.7;
+}
+
+/* Rotate arrow when open */
+.nav-has-sub.nav-sub-open > .nav-parent-link .nav-sub-arrow {
+    transform: rotate(180deg);
+}
+
+/* Chevron arrow */
+.nav-sub-arrow {
+    font-size: 0.62rem;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: transform 0.22s ease;
+    opacity: 0.7;
+}
+
+/* Rotate arrow when open */
+.nav-has-sub.nav-sub-open > .nav-parent-link .nav-sub-arrow {
+    transform: rotate(180deg);
+}
+
+/* Sub-items container — hidden by default */
+.nav-sub-items {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.25s ease;
+}
+
+/* Expanded state */
+.nav-has-sub.nav-sub-open > .nav-sub-items {
+    max-height: 200px;
+}
+
+/* Child links — indented, slightly smaller */
+.nav-child-link {
+    padding-left: 2.8rem !important;
+    font-size: 0.81rem !important;
+}
+
+.nav-child-link i {
+    font-size: 0.82rem;
+    opacity: 0.85;
+}
+
+/* Collapsed sidebar — hide sub-items & arrow */
+body.sidebar-collapsed .nav-sub-arrow  { display: none; }
+body.sidebar-collapsed .nav-sub-items  { max-height: 0 !important; }
+
+/* ── Hide browser-native password reveal / autofill buttons ── */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+    display: none !important;
+    visibility: hidden;
+    pointer-events: none;
+}
+input[type="password"]::-webkit-textfield-decoration-container { display: none; }

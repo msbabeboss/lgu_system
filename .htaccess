@@ -15,6 +15,9 @@
     Deny from all
 </FilesMatch>
 
+# ── 2b. Block .git directory (FilesMatch doesn't cover dirs) ─
+RedirectMatch 404 /\.git
+
 # ── 3. Block directory listing ───────────────────────────────
 Options -Indexes
 
@@ -39,6 +42,60 @@ Options -Indexes
 
     # Only send referrer on same-origin requests
     Header always set Referrer-Policy "same-origin"
+
+    # ── HSTS — only sent over HTTPS connections ──────────────
+    # max-age=31536000 = 1 year; includeSubDomains covers the .ts.net Tailscale host.
+    # Do NOT add preload until the domain is registered with the HSTS preload list.
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+
+    # ── Content-Security-Policy ──────────────────────────────
+    # Allows:
+    #   default-src 'self'                — everything same-origin unless overridden
+    #   script-src  CDNs + 'unsafe-inline'— Bootstrap, Chart.js, jQuery, Select2,
+    #                                       Pusher, SheetJS, html2pdf + inline <script>
+    #   style-src   CDNs + 'unsafe-inline'— Bootstrap Icons, Font Awesome,
+    #                                       Google Fonts + inline <style>
+    #   font-src    CDNs + data:           — Bootstrap Icons (woff2), Font Awesome,
+    #                                       Google Fonts (gstatic), data: URIs
+    #   img-src     'self' data: blob:     — local images, base64 resident photos,
+    #                                       Chart.js canvas exports, html2pdf blobs
+    #   connect-src 'self' wss://ws-*.pusher.com
+    #                                     — AJAX same-origin + Pusher WebSocket
+    #   frame-ancestors 'self'            — replaces X-Frame-Options (modern browsers)
+    #   object-src  'none'                — block Flash / plugins
+    #   base-uri    'self'                — prevent base-tag hijacking
+    #   form-action 'self'                — forms only submit to same origin
+    Header always set Content-Security-Policy "\
+default-src 'self'; \
+script-src 'self' 'unsafe-inline' \
+  https://cdn.jsdelivr.net \
+  https://cdnjs.cloudflare.com \
+  https://js.pusher.com \
+  https://cdn.sheetjs.com \
+  blob:; \
+style-src 'self' 'unsafe-inline' \
+  https://cdn.jsdelivr.net \
+  https://cdnjs.cloudflare.com \
+  https://fonts.googleapis.com; \
+font-src 'self' data: \
+  https://cdn.jsdelivr.net \
+  https://cdnjs.cloudflare.com \
+  https://fonts.gstatic.com; \
+img-src 'self' data: blob: \
+  https://cdn.jsdelivr.net; \
+connect-src 'self' \
+  wss://ws-mt1.pusher.com \
+  wss://ws-ap1.pusher.com \
+  wss://ws-ap2.pusher.com \
+  wss://ws-ap3.pusher.com \
+  wss://ws-ap4.pusher.com \
+  wss://ws-eu.pusher.com \
+  https://sockjs-mt1.pusher.com \
+  https://sockjs-ap1.pusher.com; \
+frame-ancestors 'self'; \
+object-src 'none'; \
+base-uri 'self'; \
+form-action 'self';"
 
     # Remove server version info
     Header unset Server

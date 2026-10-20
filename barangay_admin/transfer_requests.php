@@ -174,7 +174,7 @@ $pageSubtitle = 'Request and track resident transfers to other barangays.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -390,13 +390,6 @@ $pageSubtitle = 'Request and track resident transfers to other barangays.';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>function toggleSidebar(){document.getElementById('sidebar').classList.toggle('show');}</script>
-
-<script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initAutocomplete('trSearchInput', 'trAcList', '<?= BASE_URL ?>/ajax/search_transfer_requests.php', 'trSearchClear');
-});
-</script>
 
 <script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
 <script>

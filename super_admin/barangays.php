@@ -9,6 +9,9 @@ $u  = currentUser();
 try { $db->exec("ALTER TABLE barangays ADD COLUMN region VARCHAR(100) NULL"); } catch(PDOException $e){}
 try { $db->exec("ALTER TABLE barangays ADD COLUMN province VARCHAR(100) NULL"); } catch(PDOException $e){}
 try { $db->exec("ALTER TABLE barangays ADD COLUMN zip_code VARCHAR(10) NULL"); } catch(PDOException $e){}
+// Unique constraint — prevents duplicate barangay_name + municipality rows.
+// Silently ignored if the constraint already exists (error code 1061 on MySQL/MariaDB).
+try { $db->exec("ALTER TABLE barangays ADD CONSTRAINT uq_barangays_name_municipality UNIQUE (barangay_name, municipality)"); } catch(PDOException $e){}
 
 // ── POST Actions ───────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -21,6 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $region   = sanitize($_POST['region']   ?? '');
         $province = sanitize($_POST['province'] ?? '');
         $zip      = sanitize($_POST['zip_code'] ?? '');
+
+        // ── Duplicate check: same name + municipality (case-insensitive) ──
+        $dupChk = $db->prepare(
+            "SELECT id FROM barangays
+             WHERE LOWER(barangay_name) = LOWER(?)
+               AND LOWER(municipality)  = LOWER(?)
+             LIMIT 1"
+        );
+        $dupChk->execute([$name, $muni]);
+        if ($dupChk->fetchColumn() !== false) {
+            flash('brgy', "A barangay named <strong>" . htmlspecialchars($name) . "</strong> already exists in <strong>" . htmlspecialchars($muni) . "</strong>. No duplicate was created.", 'danger');
+            redirect(BASE_URL . '/super_admin/barangays.php');
+        }
+
         $db->prepare("INSERT INTO barangays (barangay_name, municipality, region, province, zip_code) VALUES (?,?,?,?,?)")
            ->execute([$name, $muni, $region ?: null, $province ?: null, $zip ?: null]);
         logActivity($u['id'], 'ADD_BARANGAY', 'Barangays', "Added: $name");
@@ -36,6 +53,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $region   = sanitize($_POST['region']   ?? '');
         $province = sanitize($_POST['province'] ?? '');
         $zip      = sanitize($_POST['zip_code'] ?? '');
+
+        // ── Duplicate check: another row with the same name + municipality ──
+        $dupChk = $db->prepare(
+            "SELECT id FROM barangays
+             WHERE LOWER(barangay_name) = LOWER(?)
+               AND LOWER(municipality)  = LOWER(?)
+               AND id != ?
+             LIMIT 1"
+        );
+        $dupChk->execute([$name, $muni, $id]);
+        if ($dupChk->fetchColumn() !== false) {
+            flash('brgy', "Another barangay named <strong>" . htmlspecialchars($name) . "</strong> already exists in <strong>" . htmlspecialchars($muni) . "</strong>. Update was not saved.", 'danger');
+            redirect(BASE_URL . '/super_admin/barangays.php');
+        }
+
         $db->prepare("UPDATE barangays SET barangay_name=?, municipality=?, status=?, region=?, province=?, zip_code=? WHERE id=?")
            ->execute([$name, $muni, $stat, $region ?: null, $province ?: null, $zip ?: null, $id]);
         logActivity($u['id'], 'EDIT_BARANGAY', 'Barangays', "Updated barangay details for $name");
@@ -113,7 +145,7 @@ $pageSubtitle = 'Manage all barangays in the system.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>

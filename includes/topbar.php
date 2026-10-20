@@ -139,6 +139,7 @@ try {
                 <?php if ($tbPhoto): ?>
                     <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . $tbPhoto) ?>"
                          alt="Profile"
+                         width="28" height="28"
                          style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">
                 <?php else: ?>
                     <i class="bi bi-person-circle fs-5"></i>
@@ -341,6 +342,65 @@ function toggleSidebar() {
         });
     }
 })();
+
+// ── Page transition: fade-out on navigate ────────────────
+(function () {
+    document.addEventListener('DOMContentLoaded', function () {
+        var content = document.querySelector('.main-content');
+        document.querySelectorAll('a[href]').forEach(function (a) {
+            var href = a.getAttribute('href') || '';
+            if (!href || href.startsWith('#') || href.startsWith('javascript')
+                || a.target === '_blank' || a.classList.contains('nav-parent-link')) return;
+
+            a.addEventListener('click', function (e) {
+                if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                if (!content) return;
+                e.preventDefault();
+                var dest = a.href;
+                // Opacity only — NO transform, prevents stacking context / sidebar flicker
+                content.style.transition = 'opacity 0.14s ease';
+                content.style.opacity    = '0';
+                setTimeout(function () { window.location.href = dest; }, 145);
+            });
+        });
+    });
+})();
+
+// ── Sidebar settings sub-menu toggle ─────────────────────
+function sidebarSubToggle(e, el) {
+    e.preventDefault();
+    e.stopPropagation();
+    // el may be the arrow icon or the parent link — walk up to nav-has-sub
+    var wrapper = el.closest('.nav-has-sub');
+    if (!wrapper) return;
+    wrapper.classList.toggle('nav-sub-open');
+}
+
+// Save sidebar scroll position before navigating away
+document.addEventListener('DOMContentLoaded', function () {
+    var nav = document.querySelector('.sidebar-nav');
+
+    // Restore scroll position first
+    var savedScroll = sessionStorage.getItem('sidebarScroll');
+    if (savedScroll !== null && nav) {
+        nav.scrollTop = parseInt(savedScroll, 10);
+        sessionStorage.removeItem('sidebarScroll');
+    }
+
+    // Auto-open if a child page is active
+    document.querySelectorAll('.nav-has-sub').forEach(function (wrapper) {
+        if (wrapper.querySelector('.nav-child-link.active')) {
+            wrapper.classList.add('nav-sub-open');
+        }
+    });
+
+    // Save scroll before any nav-link click navigates
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(function (link) {
+        link.addEventListener('click', function () {
+            if (nav) sessionStorage.setItem('sidebarScroll', nav.scrollTop);
+        });
+    });
+});
 
 function toggleDarkMode(e) {
     e.preventDefault();
@@ -837,8 +897,14 @@ $_logoutUrl   = BASE_URL . '/logout.php';
         document.addEventListener(ev, resetIdle, { passive: true });
     });
 
-    // Start on page load
-    resetIdle();
+    // Start on page load — wait for DOMContentLoaded so the full page-load time
+    // doesn't consume the idle window. A slow server response should not count
+    // as user idle time; the clock starts once the page is actually interactive.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', resetIdle);
+    } else {
+        resetIdle(); // already loaded (e.g. script runs after DOMContentLoaded)
+    }
 })();
 </script>
 <?php endif; ?>

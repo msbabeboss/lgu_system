@@ -161,6 +161,26 @@ function sendNotification(int $userId, string $message, string $type = 'info', s
         $category = 'system';
     }
 
+    // ── Dedup guard: suppress identical notification inserted within the last 5 seconds ─
+    try {
+        $dedup = $db->prepare(
+            "SELECT id FROM notifications
+             WHERE user_id    = ?
+               AND message    = ?
+               AND type       = ?
+               AND category   = ?
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 5 SECOND)
+             LIMIT 1"
+        );
+        $dedup->execute([$userId, $message, $type, $category]);
+        if ($dedup->fetchColumn() !== false) {
+            return; // duplicate within the time window — skip insert
+        }
+    } catch (\Throwable $e) {
+        // If the dedup check itself fails (e.g. category column absent), fall through
+        error_log('[sendNotification] dedup check failed: ' . $e->getMessage());
+    }
+
     // ── Insert — fall back to no-category INSERT if column still absent ──────
     try {
         $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category) VALUES (?,?,?,?)");
@@ -349,4 +369,80 @@ function archiveRecord(int $userId, string $tableName, int $recordId, array $rec
     } catch (Exception $e) {
         return false;
     }
+}
+
+// ── Image Processing Helpers ───────────────────────────────
+
+/**
+ * Resize and save an uploaded image using GD.
+ * Converts to WebP when the GD build supports it; falls back to JPEG otherwise.
+ * Returns the saved filename (no path), or throws RuntimeException on failure.
+ *
+ * @param string $tmpPath    Path to the uploaded tmp file
+ * @param string $mime       MIME type reported by finfo (image/jpeg|png|gif|webp)
+ * @param string $destDir    Absolute directory to save into (trailing slash optional)
+ * @param string $baseName   Filename without extension (e.g. "user_3_1713000000")
+ * @param int    $maxWidth   Resize so width ≤ this value (proportional)
+ * @param int    $maxHeight  Resize so height ≤ this value (proportional)
+ * @param int    $quality    WebP quality 0-100 (default 82)
+ * @return string            Saved filename including extension
+ */
+function resizeAndSaveImage(
+    string $tmpPath,
+    string $mime,
+    string $destDir,
+    string $baseName,
+    int $maxWidth  = 200,
+    int $maxHeight = 200,
+    int $quality   = 82
+): string {
+    // Load source image
+    $src = match ($mime) {
+        'image/jpeg' => imagecreatefromjpeg($tmpPath),
+        'image/png'  => imagecreatefrompng($tmpPath),
+        'image/gif'  => imagecreatefromgif($tmpPath),
+        'image/webp' => imagecreatefromwebp($tmpPath),
+        default      => throw new \RuntimeException("Unsupported MIME type: $mime"),
+    };
+    if (!$src) {
+        throw new \RuntimeException("Failed to open image from $tmpPath");
+    }
+
+    $origW = imagesx($src);
+    $origH = imagesy($src);
+
+    // Calculate scaled dimensions (preserve aspect ratio, never upscale)
+    $scale = min(1.0, $maxWidth / $origW, $maxHeight / $origH);
+    $newW  = (int)round($origW * $scale);
+    $newH  = (int)round($origH * $scale);
+
+    $dst = imagecreatetruecolor($newW, $newH);
+
+    // Preserve transparency for PNG / GIF / WebP
+    if (in_array($mime, ['image/png', 'image/gif', 'image/webp'], true)) {
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+        imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
+    }
+
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
+    imagedestroy($src);
+
+    $destDir = rtrim($destDir, '/\\');
+
+    // Save as WebP if available, otherwise JPEG
+    if (function_exists('imagewebp')) {
+        $filename = $baseName . '.webp';
+        $saved    = imagewebp($dst, $destDir . DIRECTORY_SEPARATOR . $filename, $quality);
+    } else {
+        $filename = $baseName . '.jpg';
+        $saved    = imagejpeg($dst, $destDir . DIRECTORY_SEPARATOR . $filename, $quality);
+    }
+    imagedestroy($dst);
+
+    if (!$saved) {
+        throw new \RuntimeException("Failed to write image to $destDir/$filename");
+    }
+    return $filename;
 }

@@ -114,11 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $brgyNameHH = $hhBrgyInfo['barangay_name'] ?? 'Barangay';
     $notifMsg = "🏠 New household added: <strong>$code</strong> — ID: <strong>#$newHouseholdId</strong> (<em>$brgyNameHH</em>)";
     sendNotification($u['id'], $notifMsg, 'success', 'system');
-    $peers = $db->prepare("SELECT id FROM users WHERE role='barangay_admin' AND barangay_id=? AND status='active' AND id != ?");
-    $peers->execute([$bid, $u['id']]);
-    foreach ($peers->fetchAll(PDO::FETCH_ASSOC) as $peer) {
-        sendNotification((int)$peer['id'], $notifMsg, 'success', 'system');
-    }
+    notifyBarangayAdmins($bid, $notifMsg, 'success', 'system', $u['id']);
 
     // ── Email confirmation to the admin who added the household ──────────
     if ($u['email']) {
@@ -149,7 +145,7 @@ $pageSubtitle = 'Register a new household record.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
     <style>
         /* Match Select2 to Bootstrap's form-select look */

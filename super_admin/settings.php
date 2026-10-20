@@ -204,9 +204,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ext  = strtolower(pathinfo($_FILES['banner']['name'], PATHINFO_EXTENSION));
             $allowed = ['jpg','jpeg','png','gif','webp'];
             if (in_array($ext, $allowed)) {
-                $fname = 'banner_' . time() . '.' . $ext;
-                move_uploaded_file($_FILES['banner']['tmp_name'], UPLOAD_PATH . $fname);
-                $db->prepare("UPDATE landing_content SET banner_path=? WHERE id=1")->execute([$fname]);
+                $finfo     = finfo_open(FILEINFO_MIME_TYPE);
+                $bannerMime = finfo_file($finfo, $_FILES['banner']['tmp_name']);
+                finfo_close($finfo);
+                $baseName  = 'banner_' . time();
+                // Resize banner to max 1400×600px and save as WebP for efficient delivery
+                try {
+                    $fname = resizeAndSaveImage($_FILES['banner']['tmp_name'], $bannerMime, UPLOAD_PATH, $baseName, 1400, 600, 82);
+                    $db->prepare("UPDATE landing_content SET banner_path=? WHERE id=1")->execute([$fname]);
+                } catch (\Throwable $e) {
+                    // Fall back to raw move if GD fails
+                    $fname = $baseName . '.' . $ext;
+                    move_uploaded_file($_FILES['banner']['tmp_name'], UPLOAD_PATH . $fname);
+                    $db->prepare("UPDATE landing_content SET banner_path=? WHERE id=1")->execute([$fname]);
+                }
             }
         }
         // Handle banner removal
@@ -295,8 +306,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $old = $cur->fetchColumn();
                 if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
 
-                $fname = 'user_' . $u['id'] . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($file['tmp_name'], $photoDir . $fname)) {
+                // Resize to 200×200px max and save as WebP (falls back to JPEG if WebP unavailable)
+                $baseName = 'user_' . $u['id'] . '_' . time();
+                try {
+                    $fname = resizeAndSaveImage($file['tmp_name'], $mime, $photoDir, $baseName, 200, 200, 85);
                     $db->prepare("UPDATE users SET profile_photo=? WHERE id=?")->execute([$fname, $u['id']]);
                     $_SESSION['user_photo'] = $fname;
                     logActivity($u['id'], 'UPDATE_PROFILE_PHOTO', 'Settings', 'Updated profile photo');
@@ -306,7 +319,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         exit;
                     }
                     flash('settings', 'Profile photo updated successfully.', 'success');
-                } else {
+                } catch (\Throwable $e) {
                     if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'Failed to save the uploaded file. Please try again.']); exit; }
                     flash('settings', 'Failed to save the uploaded file. Please try again.', 'danger');
                 }
@@ -606,7 +619,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=2.1">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         /* ── Settings Layout ─────────────────────────────── */
         .settings-wrap {
