@@ -31,7 +31,7 @@ try {
 // Seed defaults if not present
 $defaults = [
     'login_max_attempts'     => '5',
-    'login_lockout_minutes'  => '15',
+    'login_lockout_seconds'  => '300',
     'idle_timeout_enabled'   => '1',
     'idle_timeout_minutes'   => '5',
     'idle_timeout_unit'      => 'minutes',
@@ -182,8 +182,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Security ───────────────────────────────────────────
     if ($action === 'save_security') {
-        $maxAttempts   = max(1,  min(20,   (int)($_POST['login_max_attempts']     ?? 5)));
-        $lockoutMins   = max(1,  min(1440, (int)($_POST['login_lockout_minutes']  ?? 15)));
+        $maxAttempts   = max(1,  min(20,    (int)($_POST['login_max_attempts']    ?? 5)));
+        $lockoutSecs   = max(30, min(86400, (int)($_POST['login_lockout_seconds'] ?? 300)));
         $idleEnabled   = isset($_POST['idle_timeout_enabled']) ? '1' : '0';
         $idleUnit      = in_array($_POST['idle_timeout_unit'] ?? '', ['seconds','minutes'])
                             ? $_POST['idle_timeout_unit'] : 'minutes';
@@ -195,8 +195,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $idleVal = max(1,  min(120, $idleVal));
         }
 
-        baSaveSetting($db, 'login_max_attempts',     (string)$maxAttempts, $u['id']);
-        baSaveSetting($db, 'login_lockout_minutes',  (string)$lockoutMins, $u['id']);
+        baSaveSetting($db, 'login_max_attempts',    (string)$maxAttempts, $u['id']);
+        baSaveSetting($db, 'login_lockout_seconds', (string)$lockoutSecs, $u['id']);
         baSaveSetting($db, 'idle_timeout_enabled',   $idleEnabled,         $u['id']);
         baSaveSetting($db, 'idle_timeout_minutes',   (string)$idleVal,     $u['id']);
         baSaveSetting($db, 'idle_timeout_unit',      $idleUnit,            $u['id']);
@@ -748,19 +748,19 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                             <div class="col-md-5">
                                 <label class="form-label fw-semibold small">Lockout Duration</label>
                                 <div class="input-group">
-                                    <input type="number" name="login_lockout_minutes" class="form-control"
-                                           value="<?= (int)baSetting($db,'login_lockout_minutes','15') ?>"
-                                           min="1" max="1440"
+                                    <input type="number" name="login_lockout_seconds" class="form-control"
+                                           value="<?= (int)baSetting($db,'login_lockout_seconds','300') ?>"
+                                           min="30" max="86400"
                                            oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                                    <span class="input-group-text">min</span>
+                                    <span class="input-group-text">sec</span>
                                 </div>
-                                <div class="form-text">How long the account stays locked (1–1440 min)</div>
+                                <div class="form-text">How long the account stays locked (30–86400 sec)</div>
                             </div>
                         </div>
                         <div class="alert d-flex align-items-center gap-2 mt-3 mb-0 py-2 px-3"
-                             style="background:rgba(26,79,122,0.07);border:1px solid rgba(26,79,122,0.15);border-radius:10px;font-size:0.8rem;color:#1a4f7a;">
-                            <i class="bi bi-info-circle-fill flex-shrink-0"></i>
-                            These limits apply to all users in this barangay. The system automatically unlocks accounts after the lockout period expires.
+                             style="background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);border-radius:10px;font-size:0.8rem;color:#991b1b;">
+                            <i class="bi bi-lock-fill flex-shrink-0"></i>
+                            These limits apply to all users in this barangay. Once the limit is reached, the account is locked and <strong>cannot be automatically unlocked</strong> — the user must contact the LGU Admin to restore access.
                         </div>
                     </div>
                 </div>

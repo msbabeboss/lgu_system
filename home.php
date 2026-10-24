@@ -193,8 +193,8 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
         }
         $lockedUntil = $user['locked_until'] ?? null;
         if ($lockedUntil && strtotime($lockedUntil) > time()) {
-            $mins = (int)ceil((strtotime($lockedUntil) - time()) / 60);
-            echo json_encode(['ok'=>false,'msg'=>"Account is temporarily locked. Try again in {$mins} minute(s)."]); exit;
+            $secs = (int)ceil(strtotime($lockedUntil) - time());
+            echo json_encode(['ok'=>false,'msg'=>"Account is temporarily locked. Try again in {$secs} second(s)."]); exit;
         }
     }
 
@@ -294,8 +294,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
             }
             $lockedUntil = $user['locked_until'] ?? null;
             if ($lockedUntil && strtotime($lockedUntil) > time()) {
-                $mins = (int)ceil((strtotime($lockedUntil) - time()) / 60);
-                $loginError = "Account is temporarily locked. Try again in {$mins} minute(s).";
+                $secs = (int)ceil(strtotime($lockedUntil) - time());
+                $loginError = "Account is temporarily locked. Try again in {$secs} second(s).";
                 goto renderPage;
             }
         }

@@ -27,11 +27,17 @@ $kpi['certs_issued']      = (int)$db->query("SELECT COUNT(*) FROM certificates W
 $kpi['blotter_cases']     = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE $whereDate$andBrgy")->fetchColumn();
 $kpi['active_barangays']  = (int)$db->query("SELECT COUNT(*) FROM barangays WHERE status='active'")->fetchColumn();
 
-// ── Monthly resident growth (12 months) ───────────────────
+// ── Monthly resident growth (12 months, anchored to latest record) ──
+$_latestRes  = $db->query("SELECT MAX(created_at) FROM residents".($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
+$_latestCert = $db->query("SELECT MAX(date_issued) FROM certificates".($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
+$_latestBlot = $db->query("SELECT MAX(created_at) FROM blotter_cases".($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
+$_latestDates = array_filter([$_latestRes, $_latestCert, $_latestBlot]);
+$_anchorTs    = $_latestDates ? strtotime(max($_latestDates)) : time();
+
 $monthLabels = []; $monthNewRes = []; $monthCerts = []; $monthBlotter = [];
 for ($i = 11; $i >= 0; $i--) {
-    $m = date('Y-m', strtotime("-$i months"));
-    $monthLabels[]  = date('M Y', strtotime("-$i months"));
+    $m = date('Y-m', strtotime("-$i months", $_anchorTs));
+    $monthLabels[]  = date('M Y', strtotime("-$i months", $_anchorTs));
     $monthNewRes[]  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE DATE_FORMAT(created_at,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
     $monthCerts[]   = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE DATE_FORMAT(date_issued,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
     $monthBlotter[] = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE DATE_FORMAT(created_at,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();

@@ -39,11 +39,21 @@ $kpi['certs_issued']     = (int)$db->query("SELECT COUNT(*) FROM certificates WH
 $kpi['blotter_cases']    = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=$bid AND $whereDate")->fetchColumn();
 $kpi['officials']        = (int)$db->query("SELECT COUNT(*) FROM officials WHERE barangay_id=$bid AND status='active'")->fetchColumn();
 
-// ── Monthly trends (12 months) ─────────────────────────────
+// ── Monthly trends (12 months, anchored to latest record) ──
+// Find the most recent record across residents, certificates, and blotter
+$latestResident = $db->query("SELECT MAX(created_at) FROM residents WHERE barangay_id=$bid")->fetchColumn();
+$latestCert     = $db->query("SELECT MAX(date_issued) FROM certificates WHERE barangay_id=$bid")->fetchColumn();
+$latestBlotter  = $db->query("SELECT MAX(created_at) FROM blotter_cases WHERE barangay_id=$bid")->fetchColumn();
+
+// Use the most recent date found; fall back to today if DB is completely empty
+$latestDates = array_filter([$latestResident, $latestCert, $latestBlotter]);
+$anchorDate  = $latestDates ? max($latestDates) : date('Y-m-d');
+$anchorTs    = strtotime($anchorDate);
+
 $monthLabels = []; $monthNewRes = []; $monthCerts = []; $monthBlotter = [];
 for ($i = 11; $i >= 0; $i--) {
-    $m = date('Y-m', strtotime("-$i months"));
-    $monthLabels[]  = date('M Y', strtotime("-$i months"));
+    $m = date('Y-m', strtotime("-$i months", $anchorTs));
+    $monthLabels[]  = date('M Y', strtotime("-$i months", $anchorTs));
     $monthNewRes[]  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE barangay_id=$bid AND DATE_FORMAT(created_at,'%Y-%m')='$m'")->fetchColumn();
     $monthCerts[]   = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE barangay_id=$bid AND DATE_FORMAT(date_issued,'%Y-%m')='$m'")->fetchColumn();
     $monthBlotter[] = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=$bid AND DATE_FORMAT(created_at,'%Y-%m')='$m'")->fetchColumn();
@@ -291,12 +301,12 @@ $pageSubtitle = 'Demographic charts and population insights.';
     </div>
 
     <!-- ── Trend Charts ──── -->
-    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (Last 12 Months)</div>
+    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (12 Months ending <?= date('M Y', $anchorTs) ?>)</div>
     <div class="row g-3 mb-4">
         <div class="col-12">
             <div class="chart-card">
                 <div class="ch"><i class="bi bi-graph-up-arrow text-primary"></i>Resident Registrations, Certificates &amp; Blotter Cases</div>
-                <div class="cb" id="cb-trendChart"><canvas id="trendChart" style="max-height:220px;"></canvas></div>
+                <div class="cb" id="cb-trendChart"><canvas id="trendChart" style="max-height:220px;display:block;"></canvas></div>
             </div>
         </div>
     </div>
@@ -307,25 +317,25 @@ $pageSubtitle = 'Demographic charts and population insights.';
         <div class="col-md-3">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-gender-ambiguous text-primary"></i>Gender</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-genderChart"><canvas id="genderChart" style="max-height:180px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-genderChart"><canvas id="genderChart" style="max-height:180px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-calendar-person text-success"></i>Age Groups</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-ageChart"><canvas id="ageChart" style="max-height:180px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-ageChart"><canvas id="ageChart" style="max-height:180px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-person-check-fill text-warning"></i>Voter Status</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-voterChart"><canvas id="voterChart" style="max-height:180px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-voterChart"><canvas id="voterChart" style="max-height:180px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-person-workspace text-danger"></i>Resident Status</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-resStatusChart"><canvas id="resStatusChart" style="max-height:180px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-resStatusChart"><canvas id="resStatusChart" style="max-height:180px;display:block;"></canvas></div>
             </div>
         </div>
     </div>
@@ -336,13 +346,13 @@ $pageSubtitle = 'Demographic charts and population insights.';
         <div class="col-md-6">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-bar-chart-fill text-primary"></i>Employment Status</div>
-                <div class="cb" id="cb-empChart"><canvas id="empChart" style="max-height:200px;"></canvas></div>
+                <div class="cb" id="cb-empChart"><canvas id="empChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-people-fill text-info"></i>Sector Breakdown</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-sectorChart"><canvas id="sectorChart" style="max-height:200px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-sectorChart"><canvas id="sectorChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
     </div>
@@ -353,19 +363,19 @@ $pageSubtitle = 'Demographic charts and population insights.';
         <div class="col-md-5">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-file-earmark-bar-graph-fill text-success"></i>Certificates by Type</div>
-                <div class="cb" id="cb-certChart"><canvas id="certChart" style="max-height:200px;"></canvas></div>
+                <div class="cb" id="cb-certChart"><canvas id="certChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-shield-fill-exclamation text-danger"></i>Blotter by Status</div>
-                <div class="cb d-flex align-items-center justify-content-center" id="cb-blotterChart"><canvas id="blotterChart" style="max-height:200px;"></canvas></div>
+                <div class="cb d-flex align-items-center justify-content-center" id="cb-blotterChart"><canvas id="blotterChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-currency-exchange text-warning"></i>Household Income</div>
-                <div class="cb" id="cb-incomeChart"><canvas id="incomeChart" style="max-height:200px;"></canvas></div>
+                <div class="cb" id="cb-incomeChart"><canvas id="incomeChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
     </div>
@@ -376,13 +386,13 @@ $pageSubtitle = 'Demographic charts and population insights.';
         <div class="col-md-6">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-person-badge-fill text-primary"></i>Officials by Position</div>
-                <div class="cb" id="cb-officialsChart"><canvas id="officialsChart" style="max-height:200px;"></canvas></div>
+                <div class="cb" id="cb-officialsChart"><canvas id="officialsChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="chart-card h-100">
                 <div class="ch"><i class="bi bi-inbox-fill text-warning"></i>Requests by Type</div>
-                <div class="cb" id="cb-reqChart"><canvas id="reqChart" style="max-height:200px;"></canvas></div>
+                <div class="cb" id="cb-reqChart"><canvas id="reqChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
     </div>
@@ -390,151 +400,108 @@ $pageSubtitle = 'Demographic charts and population insights.';
 </div><!-- /main-content -->
 
 <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script defer>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
+
+document.addEventListener('DOMContentLoaded', function () {
 
 const palette = ['#1a4f7a','#2176ae','#3a9fd8','#43a047','#e53935','#fb8c00','#8e24aa','#00897b'];
 const tt = { ticks:{font:{size:10}}, grid:{color:'rgba(0,0,0,0.06)'} };
 const pctTip = { callbacks:{ label: ctx => { const t=ctx.dataset.data.reduce((a,b)=>a+b,0); return ` ${ctx.label}: ${ctx.parsed.toLocaleString()} (${t?((ctx.parsed/t)*100).toFixed(1):0}%)`; }}};
 
-/**
- * Renders a Chart.js chart inside a canvas.
- * If all data values are zero (or the data array is empty), hides the canvas
- * and shows a "No data for this period" empty state inside the parent .cb div.
- *
- * @param {string} canvasId   - The id of the <canvas> element
- * @param {object} config     - Standard Chart.js config object
- * @param {Array}  dataValues - Flat array of numeric values used to detect empty state
- */
-function renderChart(canvasId, config, dataValues) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return null;
-    const container = document.getElementById('cb-' + canvasId);
-
-    // Determine if all values are zero / empty
-    const vals = (dataValues || []).map(Number);
-    const isEmpty = vals.length === 0 || vals.every(v => v === 0 || isNaN(v));
-
-    if (isEmpty) {
-        canvas.style.display = 'none';
-        if (container) {
-            container.innerHTML =
-                '<div class="chart-empty-state w-100">' +
-                '<i class="bi bi-bar-chart-line"></i>' +
-                '<span>No data for this period</span>' +
-                '</div>';
-        }
-        return null;
-    }
-
-    return new Chart(canvas, config);
-}
-
 // ── Trend ─────────────────────────────────────────────────
-const trendResidents = <?= json_encode($monthNewRes) ?>;
-const trendCerts     = <?= json_encode($monthCerts) ?>;
-const trendBlotter   = <?= json_encode($monthBlotter) ?>;
-const trendAllValues = [...trendResidents, ...trendCerts, ...trendBlotter];
-
-renderChart('trendChart', {
+new Chart(document.getElementById('trendChart'), {
     type:'line',
     data:{
         labels: <?= json_encode($monthLabels) ?>,
         datasets:[
-            { label:'New Residents', data:trendResidents, borderColor:'#1a4f7a', backgroundColor:'rgba(26,79,122,0.08)',  tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#1a4f7a' },
-            { label:'Certificates',  data:trendCerts,     borderColor:'#43a047', backgroundColor:'rgba(67,160,71,0.07)',   tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#43a047' },
-            { label:'Blotter Cases', data:trendBlotter,   borderColor:'#e53935', backgroundColor:'rgba(229,57,53,0.06)',   tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#e53935' },
+            { label:'New Residents', data:<?= json_encode($monthNewRes) ?>,   borderColor:'#1a4f7a', backgroundColor:'rgba(26,79,122,0.08)',  tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#1a4f7a' },
+            { label:'Certificates',  data:<?= json_encode($monthCerts) ?>,    borderColor:'#43a047', backgroundColor:'rgba(67,160,71,0.07)',   tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#43a047' },
+            { label:'Blotter Cases', data:<?= json_encode($monthBlotter) ?>,  borderColor:'#e53935', backgroundColor:'rgba(229,57,53,0.06)',   tension:.4, fill:true, pointRadius:3, pointBackgroundColor:'#e53935' },
         ]
     },
     options:{ responsive:true, plugins:{ legend:{ position:'top', labels:{ font:{ size:11 }, boxWidth:12 }}}, scales:{ x:tt, y:{...tt, beginAtZero:true} }}
-}, trendAllValues);
+});
 
 // ── Gender ────────────────────────────────────────────────
-renderChart('genderChart', {
+new Chart(document.getElementById('genderChart'), {
     type:'doughnut',
     data:{ labels:['Male','Female'], datasets:[{ data:[<?= $genderData['Male'] ?>,<?= $genderData['Female'] ?>], backgroundColor:['#2176ae','#e91e8c'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
     options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{size:10}, boxWidth:10 }}, tooltip:pctTip }}
-}, [<?= $genderData['Male'] ?>,<?= $genderData['Female'] ?>]);
+});
 
 // ── Age ───────────────────────────────────────────────────
-const ageVals = <?= json_encode(array_values($ageGroups)) ?>;
-renderChart('ageChart', {
+new Chart(document.getElementById('ageChart'), {
     type:'doughnut',
-    data:{ labels:<?= json_encode(array_keys($ageGroups)) ?>, datasets:[{ data:ageVals, backgroundColor:['#1a4f7a','#2176ae','#43a047','#fb8c00','#8e24aa'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
+    data:{ labels:<?= json_encode(array_keys($ageGroups)) ?>, datasets:[{ data:<?= json_encode(array_values($ageGroups)) ?>, backgroundColor:['#1a4f7a','#2176ae','#43a047','#fb8c00','#8e24aa'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
     options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{size:10}, boxWidth:10 }}, tooltip:pctTip }}
-}, ageVals);
+});
 
 // ── Voter ─────────────────────────────────────────────────
-renderChart('voterChart', {
+new Chart(document.getElementById('voterChart'), {
     type:'doughnut',
     data:{ labels:['Registered','Not Registered'], datasets:[{ data:[<?= $voterData['Registered'] ?>,<?= $voterData['Not Registered'] ?>], backgroundColor:['#1a4f7a','#e0e0e0'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
     options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{size:10}, boxWidth:10 }}, tooltip:pctTip }}
-}, [<?= $voterData['Registered'] ?>,<?= $voterData['Not Registered'] ?>]);
+});
 
 // ── Resident Status ───────────────────────────────────────
-const resStatusVals = <?= json_encode(array_values($resStatus ?: [])) ?>;
-renderChart('resStatusChart', {
+new Chart(document.getElementById('resStatusChart'), {
     type:'doughnut',
-    data:{ labels:<?= json_encode(array_keys($resStatus ?: [])) ?>, datasets:[{ data:resStatusVals, backgroundColor:['#43a047','#64748b','#2176ae','#e53935'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
+    data:{ labels:<?= json_encode(array_keys($resStatus ?: ['No Data'=>0])) ?>, datasets:[{ data:<?= json_encode(array_values($resStatus ?: [0])) ?>, backgroundColor:['#43a047','#64748b','#2176ae','#e53935'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
     options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{size:10}, boxWidth:10 }}, tooltip:pctTip }}
-}, resStatusVals);
+});
 
 // ── Employment ────────────────────────────────────────────
-const empVals = <?= json_encode($empValues) ?>;
-renderChart('empChart', {
+new Chart(document.getElementById('empChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode($empStatuses) ?>, datasets:[{ data:empVals, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
+    data:{ labels:<?= json_encode($empStatuses) ?>, datasets:[{ data:<?= json_encode($empValues) ?>, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
     options:{ responsive:true, plugins:{ legend:{ display:false }}, scales:{ x:tt, y:{...tt, beginAtZero:true} }}
-}, empVals);
+});
 
 // ── Sectors ───────────────────────────────────────────────
-const sectorVals = <?= json_encode(array_values($sectors)) ?>;
-renderChart('sectorChart', {
+new Chart(document.getElementById('sectorChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode(array_keys($sectors)) ?>, datasets:[{ data:sectorVals, backgroundColor:['#8e24aa','#fb8c00','#e53935','#00897b'], borderRadius:6, borderWidth:0 }]},
+    data:{ labels:<?= json_encode(array_keys($sectors)) ?>, datasets:[{ data:<?= json_encode(array_values($sectors)) ?>, backgroundColor:['#8e24aa','#fb8c00','#e53935','#00897b'], borderRadius:6, borderWidth:0 }]},
     options:{ responsive:true, indexAxis:'y', plugins:{ legend:{ display:false }}, scales:{ x:{...tt, beginAtZero:true}, y:tt }}
-}, sectorVals);
+});
 
 // ── Certificates ──────────────────────────────────────────
-const certVals = <?= json_encode($certCounts ?: []) ?>;
-renderChart('certChart', {
+new Chart(document.getElementById('certChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode($certTypes ?: []) ?>, datasets:[{ data:certVals, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
+    data:{ labels:<?= json_encode($certTypes ?: ['No Data']) ?>, datasets:[{ data:<?= json_encode($certCounts ?: [0]) ?>, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
     options:{ responsive:true, plugins:{ legend:{ display:false }}, scales:{ x:{...tt, ticks:{...tt.ticks, maxRotation:30}}, y:{...tt, beginAtZero:true} }}
-}, certVals);
+});
 
 // ── Blotter ───────────────────────────────────────────────
-const blotterVals = <?= json_encode(array_values($blotterStatus ?: [])) ?>;
-renderChart('blotterChart', {
+new Chart(document.getElementById('blotterChart'), {
     type:'doughnut',
-    data:{ labels:<?= json_encode(array_keys($blotterStatus ?: [])) ?>, datasets:[{ data:blotterVals, backgroundColor:['#fb8c00','#1a4f7a','#43a047','#e53935','#64748b'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
+    data:{ labels:<?= json_encode(array_keys($blotterStatus ?: ['No Data'=>0])) ?>, datasets:[{ data:<?= json_encode(array_values($blotterStatus ?: [0])) ?>, backgroundColor:['#fb8c00','#1a4f7a','#43a047','#e53935','#64748b'], borderWidth:2, borderColor:'#fff', hoverOffset:8 }]},
     options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{size:9}, boxWidth:9 }}, tooltip:pctTip }}
-}, blotterVals);
+});
 
 // ── Income ────────────────────────────────────────────────
-const incomeVals = <?= json_encode($incomeCounts) ?>;
-renderChart('incomeChart', {
+new Chart(document.getElementById('incomeChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode($incomeRanges) ?>, datasets:[{ data:incomeVals, backgroundColor:'rgba(26,79,122,0.75)', borderRadius:6, borderWidth:0, hoverBackgroundColor:'#1a4f7a' }]},
+    data:{ labels:<?= json_encode($incomeRanges) ?>, datasets:[{ data:<?= json_encode($incomeCounts) ?>, backgroundColor:'rgba(26,79,122,0.75)', borderRadius:6, borderWidth:0, hoverBackgroundColor:'#1a4f7a' }]},
     options:{ responsive:true, plugins:{ legend:{ display:false }}, scales:{ x:{...tt, ticks:{...tt.ticks, maxRotation:30}}, y:{...tt, beginAtZero:true} }}
-}, incomeVals);
+});
 
 // ── Officials ─────────────────────────────────────────────
-const officialsVals = <?= json_encode(array_values($officialsByPos ?: [])) ?>;
-renderChart('officialsChart', {
+new Chart(document.getElementById('officialsChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode(array_keys($officialsByPos ?: [])) ?>, datasets:[{ data:officialsVals, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
+    data:{ labels:<?= json_encode(array_keys($officialsByPos ?: ['No Data'=>0])) ?>, datasets:[{ data:<?= json_encode(array_values($officialsByPos ?: [0])) ?>, backgroundColor:palette, borderRadius:6, borderWidth:0 }]},
     options:{ responsive:true, indexAxis:'y', plugins:{ legend:{ display:false }}, scales:{ x:{...tt, beginAtZero:true}, y:tt }}
-}, officialsVals);
+});
 
 // ── Requests ──────────────────────────────────────────────
-const reqVals = <?= json_encode($reqCounts) ?>;
-renderChart('reqChart', {
+new Chart(document.getElementById('reqChart'), {
     type:'bar',
-    data:{ labels:<?= json_encode(array_values($reqTypes)) ?>, datasets:[{ data:reqVals, backgroundColor:['#e53935','#1a4f7a','#43a047','#64748b','#8e24aa'], borderRadius:6, borderWidth:0 }]},
+    data:{ labels:<?= json_encode(array_values($reqTypes)) ?>, datasets:[{ data:<?= json_encode($reqCounts) ?>, backgroundColor:['#e53935','#1a4f7a','#43a047','#64748b','#8e24aa'], borderRadius:6, borderWidth:0 }]},
     options:{ responsive:true, plugins:{ legend:{ display:false }}, scales:{ x:tt, y:{...tt, beginAtZero:true} }}
-}, reqVals);
+});
+
+}); // end DOMContentLoaded
 </script>
 </body>
 </html>
