@@ -41,6 +41,11 @@ $defaults = [
     'archive_residents'      => '1',
     'archive_requests'       => '1',
     'archive_notices'        => '1',
+    'notif_request_approved' => '1',
+    'notif_request_rejected' => '1',
+    'notif_request_done'     => '1',
+    'notif_system_alerts'    => '1',
+    'notif_email_enabled'    => '0',
 ];
 foreach ($defaults as $k => $v) {
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute([$k, $v]);
@@ -61,7 +66,7 @@ function baSaveSetting(PDO $db, string $key, string $val, int $userId): void {
 
 // ── Active tab ─────────────────────────────────────────────
 $tab = $_GET['tab'] ?? 'profile';
-$validTabs = ['profile','security','archive','authenticator'];
+$validTabs = ['profile','security','archive','authenticator','preferences'];
 if (!in_array($tab, $validTabs)) $tab = 'profile';
 
 $flash = getFlash('ba_settings');
@@ -217,6 +222,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated Archive settings');
         flash('ba_settings', 'Archive settings saved.', 'success');
         redirect(BASE_URL . '/barangay_admin/settings.php?tab=archive');
+    }
+
+    // ── Preferences ────────────────────────────────────────
+    if ($action === 'save_preferences') {
+        $keys = ['notif_request_approved','notif_request_rejected','notif_request_done',
+                 'notif_system_alerts','notif_email_enabled'];
+        foreach ($keys as $k) {
+            baSaveSetting($db, $k, isset($_POST[$k]) ? '1' : '0', $u['id']);
+        }
+        logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated notification preferences');
+        flash('ba_settings', 'Notification preferences saved.', 'success');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=preferences');
     }
 
     // ── 2FA: Generate secret ───────────────────────────────
@@ -448,6 +465,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                 'security'      => ['bi-shield-lock-fill',  'Security'],
                 'archive'       => ['bi-archive-fill',       'Archive'],
                 'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
+                'preferences'   => ['bi-bell-fill',         'Preferences'],
             ];
             foreach ($navItems as $t => [$icon, $label]):
             ?>
@@ -1151,6 +1169,63 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
             </div>
 
 <?php endif; /* end authenticator tab */ ?>
+
+<?php /* ══════════════════════════════════════════
+   TAB: PREFERENCES
+══════════════════════════════════════════ */ ?>
+<?php if ($tab === 'preferences'): ?>
+
+            <form method="POST">
+                <input type="hidden" name="action" value="save_preferences">
+                <?= csrfField() ?>
+
+                <div class="settings-card">
+                    <div class="sc-header">
+                        <div class="sc-icon"><i class="bi bi-bell-fill"></i></div>
+                        <div>
+                            <h6>Notification Preferences</h6>
+                            <p>Choose which notifications you receive</p>
+                        </div>
+                    </div>
+                    <div class="sc-body">
+
+                        <?php
+                        $prefRows = [
+                            ['notif_request_approved', 'Request Approved',     'Notify users when their request is approved'],
+                            ['notif_request_rejected', 'Request Rejected',     'Notify users when their request is rejected'],
+                            ['notif_request_done',     'Request Completed',    'Notify users when their request is marked as done'],
+                            ['notif_system_alerts',    'System Alerts',        'Show system-level alerts and announcements'],
+                            ['notif_email_enabled',    'Email Notifications',  'Send email alerts in addition to in-app notifications (requires mail server setup)'],
+                        ];
+                        foreach ($prefRows as [$key, $title, $desc]):
+                            $checked = baSetting($db, $key, '1') === '1';
+                        ?>
+                        <div class="toggle-row">
+                            <div>
+                                <div class="tr-label"><?= htmlspecialchars($title) ?></div>
+                                <div class="tr-desc"><?= htmlspecialchars($desc) ?></div>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox"
+                                       name="<?= $key ?>" id="pref_<?= $key ?>"
+                                       <?= $checked ? 'checked' : '' ?>
+                                       role="switch">
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+
+                        <div class="d-flex justify-content-end mt-3">
+                            <button type="submit" class="btn btn-primary px-4 fw-semibold" style="border-radius:8px;">
+                                <i class="bi bi-check-lg me-1"></i>Save Preferences
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
+
+            </form>
+
+<?php endif; /* end preferences tab */ ?>
 
         </div><!-- end settings-content -->
     </div><!-- end settings-wrap -->

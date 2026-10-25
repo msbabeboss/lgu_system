@@ -18,6 +18,12 @@ $db->prepare("DELETE FROM notifications WHERE user_id = ? AND created_at < NOW()
 $db->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0")
    ->execute([$u['id']]);
 
+// ── Filters ────────────────────────────────────────────────────────────────
+$allowedCats  = ['all','resident','certificate','transaction','announcement','system'];
+$allowedReads = ['all','unread','read'];
+$filterCat  = in_array($_GET['cat']  ?? 'all', $allowedCats)  ? ($_GET['cat']  ?? 'all') : 'all';
+$filterRead = in_array($_GET['read'] ?? 'all', $allowedReads) ? ($_GET['read'] ?? 'all') : 'all';
+
 // ── Get user email ─────────────────────────────────────────────────────────
 $userEmail = $u['email'] ?? '';
 if (!$userEmail) {
@@ -30,15 +36,28 @@ if (!$userEmail) {
 $perPage = 10;
 $page    = max(1, (int)($_GET['page'] ?? 1));
 
-$countStmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ?");
-$countStmt->execute([$u['id']]);
+$whereClauses = ['user_id = ?'];
+$whereParams  = [$u['id']];
+if ($filterCat !== 'all') {
+    $whereClauses[] = 'category = ?';
+    $whereParams[]  = $filterCat;
+}
+if ($filterRead === 'unread') {
+    $whereClauses[] = 'is_read = 0';
+} elseif ($filterRead === 'read') {
+    $whereClauses[] = 'is_read = 1';
+}
+$whereSql = implode(' AND ', $whereClauses);
+
+$countStmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE $whereSql");
+$countStmt->execute($whereParams);
 $totalCount = (int)$countStmt->fetchColumn();
 $totalPages = max(1, (int)ceil($totalCount / $perPage));
 $page       = min($page, $totalPages);
 $offset     = ($page - 1) * $perPage;
 
-$stmt = $db->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset);
-$stmt->execute([$u['id']]);
+$stmt = $db->prepare("SELECT * FROM notifications WHERE $whereSql ORDER BY created_at DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset);
+$stmt->execute($whereParams);
 $notifList = $stmt->fetchAll();
 
 // ── Icon per category/type ─────────────────────────────────────────────────
@@ -121,6 +140,40 @@ $pageSubtitle = '';
         <span class="badge bg-secondary px-2 py-1" style="font-size:0.72rem;"><?= number_format($totalCount) ?> total</span>
     </div>
 
+    <!-- Filter Bar -->
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <!-- Category pills -->
+        <div class="d-flex flex-wrap gap-1">
+            <?php
+            $catPills = [
+                'all'          => ['All',          ''],
+                'resident'     => ['&#128100; Residents',    'resident'],
+                'certificate'  => ['&#128220; Certificates', 'certificate'],
+                'transaction'  => ['&#128260; Transactions', 'transaction'],
+                'announcement' => ['&#128226; Announcements','announcement'],
+                'system'       => ['&#9881;&#65039; System', 'system'],
+            ];
+            foreach ($catPills as $val => [$label, $_]):
+                $active = ($filterCat === $val) ? 'btn-primary' : 'btn-outline-secondary';
+                $href   = '?cat=' . urlencode($val) . '&read=' . urlencode($filterRead) . '&page=1';
+            ?>
+            <a href="<?= htmlspecialchars($href) ?>" class="btn btn-sm <?= $active ?>" style="border-radius:20px;font-size:0.75rem;"><?= $label ?></a>
+            <?php endforeach; ?>
+        </div>
+        <div class="vr d-none d-sm-block" style="height:24px;"></div>
+        <!-- Read-status pills -->
+        <div class="d-flex flex-wrap gap-1">
+            <?php
+            $readPills = ['all' => 'All', 'unread' => 'Unread', 'read' => 'Read'];
+            foreach ($readPills as $val => $label):
+                $active = ($filterRead === $val) ? 'btn-primary' : 'btn-outline-secondary';
+                $href   = '?cat=' . urlencode($filterCat) . '&read=' . urlencode($val) . '&page=1';
+            ?>
+            <a href="<?= htmlspecialchars($href) ?>" class="btn btn-sm <?= $active ?>" style="border-radius:20px;font-size:0.75rem;"><?= $label ?></a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
     <!-- List -->
     <div class="card border-0 shadow-sm" style="border-radius:10px;overflow:hidden;">
     <?php if (empty($notifList)): ?>
@@ -153,7 +206,7 @@ $pageSubtitle = '';
     </div>
 
     <!-- Pagination -->
-    <?php $paginationBase = '?'; $paginationLabel = 'notification'; include __DIR__ . '/../includes/pagination.php'; ?>
+    <?php $paginationBase = '?cat=' . urlencode($filterCat) . '&read=' . urlencode($filterRead) . '&'; $paginationLabel = 'notification'; include __DIR__ . '/../includes/pagination.php'; ?>
 
 </div>
 
