@@ -69,6 +69,10 @@ $tab = $_GET['tab'] ?? 'profile';
 $validTabs = ['profile','security','archive','authenticator','preferences'];
 if (!in_array($tab, $validTabs)) $tab = 'profile';
 
+$isFrame = isset($_GET['frame']) && $_GET['frame'] === '1';
+$isAjax  = !empty($_GET['ajax'])  && $_GET['ajax']  === '1' && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET';
+$autoOpenChangePw = isset($_GET['action']) && $_GET['action'] === 'change_pw';
+
 $flash = getFlash('ba_settings');
 
 // ── Fresh self row ─────────────────────────────────────────
@@ -331,6 +335,245 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $selfStmt->execute([$u['id']]);
 $self = $selfStmt->fetch();
 
+// ── Shell: output full-page shell with iframe, then exit ──────────────
+if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $curTab = in_array($tab, $validTabs) ? $tab : 'profile';
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= htmlspecialchars(getCsrfToken()) ?>">
+    <title>Settings — <?= APP_NAME ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <style>
+        .main-content { animation: none !important; contain: none !important; padding: 20px 24px 0 22px !important; overflow: hidden; }
+        .settings-shell-wrap { display: flex; gap: 24px; align-items: flex-start; height: calc(100vh - var(--topbar-height, 64px) - 20px); overflow-y: auto; }
+        .settings-sidebar { width: 220px; min-width: 220px; flex-shrink: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; padding: 12px 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); align-self: flex-start; position: sticky; top: 0; max-height: calc(100vh - var(--topbar-height, 64px) - 20px); overflow-y: auto; transform: translateZ(0); backface-visibility: hidden; isolation: isolate; }
+        .settings-sidebar .s-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #3a7fa8; padding: 6px 12px 4px; }
+        .settings-sidebar .s-link { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 10px; font-size: 0.875rem; font-weight: 500; color: #2a5070; text-decoration: none; transition: background 0.15s, color 0.15s; margin-bottom: 2px; }
+        .settings-sidebar .s-link i { font-size: 1rem; width: 20px; text-align: center; }
+        .settings-sidebar .s-link:hover { background: rgba(26,79,122,0.07); color: #1a4f7a; }
+        .settings-sidebar .s-link.active { background: linear-gradient(90deg, #1a4f7a 0%, #3a7fa8 100%); color: #fff; box-shadow: 0 3px 10px rgba(26,79,122,0.25); }
+        .settings-sidebar .s-link.active i { color: #fff; }
+        #settingsFrame { flex: 1; border: none; min-width: 0; width: 100%; height: calc(100vh - var(--topbar-height, 64px) - 20px); background: transparent; display: block; overflow: hidden; }
+        @media (max-width: 768px) { .settings-shell-wrap { flex-direction: column; height: auto; } .settings-sidebar { position: static; width: 100%; max-height: unset; } #settingsFrame { height: 80vh; } }
+    </style>
+</head>
+<body>
+<?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
+<?php include __DIR__ . '/../includes/topbar.php'; ?>
+<div class="main-content">
+    <div class="settings-shell-wrap">
+        <nav class="settings-sidebar">
+            <div class="s-title">Settings</div>
+            <?php
+            $shellNavItems = [
+                'profile'       => ['bi-person-fill',       'Profile'],
+                'security'      => ['bi-shield-lock-fill',  'Security'],
+                'archive'       => ['bi-archive-fill',       'Archive'],
+                'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
+                'preferences'   => ['bi-bell-fill',         'Preferences'],
+            ];
+            foreach ($shellNavItems as $t => [$icon, $label]):
+            ?>
+            <a href="#" class="s-link <?= $curTab === $t ? 'active' : '' ?>" onclick="switchTab('<?= $t ?>');return false;">
+                <i class="bi <?= $icon ?>"></i> <?= $label ?>
+            </a>
+            <?php endforeach; ?>
+            <div class="s-title mt-3">Account</div>
+            <a href="#" class="s-link" onclick="openCPModal();return false;">
+                <i class="bi bi-key-fill"></i> Change Password
+            </a>
+            <a href="<?= BASE_URL ?>/barangay_admin/audit_log.php" class="s-link">
+                <i class="bi bi-shield-check-fill"></i> Audit Log
+            </a>
+        </nav>
+        <iframe id="settingsFrame"
+                src="<?= BASE_URL ?>/barangay_admin/settings.php?tab=<?= urlencode($curTab) ?>&frame=1"
+                frameborder="0"
+                allowtransparency="true"
+                scrolling="no">
+        </iframe>
+    </div>
+</div>
+
+<!-- ══ Change Password Modal (shell) ══════════════════════ -->
+<div id="changePasswordModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:20px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;margin:16px;">
+        <div style="background:linear-gradient(135deg,#1a4f7a,#3a7fa8);padding:22px 28px;display:flex;align-items:center;justify-content:space-between;">
+            <div class="d-flex align-items-center gap-3">
+                <div style="width:40px;height:40px;background:rgba(255,255,255,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <i class="bi bi-key-fill text-white fs-5"></i>
+                </div>
+                <div>
+                    <div class="fw-bold text-white" style="font-size:1rem;">Change Password</div>
+                    <div style="font-size:0.75rem;color:rgba(255,255,255,0.7);">Update your account password</div>
+                </div>
+            </div>
+            <button onclick="closeCPModal()" style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;width:32px;height:32px;color:#fff;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div style="padding:28px;">
+            <div id="cpAlert" style="display:none;padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:16px;align-items:center;gap:8px;"></div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">Current Password <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                    <input type="password" id="cpCurrent" class="form-control" placeholder="Enter current password">
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleCPVis('cpCurrent','cpEye1')"><i class="bi bi-eye" id="cpEye1"></i></button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">New Password <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                    <input type="password" id="cpNew" class="form-control" placeholder="Min 8 chars, letters + numbers" oninput="cpStrength(this.value)">
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleCPVis('cpNew','cpEye2')"><i class="bi bi-eye" id="cpEye2"></i></button>
+                </div>
+                <div style="background:#e9ecef;border-radius:2px;height:4px;margin-top:6px;"><div id="cpStrBar" style="height:4px;border-radius:2px;width:0%;transition:width .3s,background .3s;"></div></div>
+                <small id="cpStrLabel" style="font-size:0.72rem;color:#6c757d;"></small>
+            </div>
+            <div class="mb-4">
+                <label class="form-label fw-semibold small">Confirm New Password <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                    <input type="password" id="cpConfirm" class="form-control" placeholder="Repeat new password">
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleCPVis('cpConfirm','cpEye3')"><i class="bi bi-eye" id="cpEye3"></i></button>
+                </div>
+            </div>
+            <div id="cpConfirmStep" style="display:none;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    <span class="fw-semibold small">Are you sure you want to change your password?</span>
+                </div>
+                <p class="text-muted small mb-3">You will be logged out automatically after the password is changed.</p>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-danger btn-sm px-4" onclick="doChangePassword()"><i class="bi bi-check-lg me-1"></i>Yes, Change It</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('cpConfirmStep').style.display='none';document.getElementById('cpSubmitBtn').style.display='block';">Cancel</button>
+                </div>
+            </div>
+            <button id="cpSubmitBtn" class="btn btn-primary w-100 fw-semibold" onclick="showCPConfirm()"><i class="bi bi-key me-2"></i>Change Password</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
+
+var _curTab = '<?= $curTab ?>';
+function switchTab(tab) {
+    _curTab = tab;
+    document.querySelectorAll('.settings-sidebar .s-link[onclick]').forEach(function(el) {
+        var m = el.getAttribute('onclick').match(/switchTab\('([^']+)'\)/);
+        if (m) el.classList.toggle('active', m[1] === tab);
+    });
+    document.getElementById('settingsFrame').src = '<?= BASE_URL ?>/barangay_admin/settings.php?tab=' + encodeURIComponent(tab) + '&frame=1';
+}
+
+function autoResizeFrame() {
+    var frame = document.getElementById('settingsFrame');
+    try {
+        var h = frame.contentWindow.document.documentElement.scrollHeight;
+        if (h > 200) frame.style.height = h + 'px';
+    } catch(e) {}
+}
+document.getElementById('settingsFrame').addEventListener('load', function() {
+    setTimeout(autoResizeFrame, 80);
+});
+
+function openCPModal()  { document.getElementById('changePasswordModal').style.display = 'flex'; }
+function closeCPModal() {
+    document.getElementById('changePasswordModal').style.display = 'none';
+    ['cpCurrent','cpNew','cpConfirm'].forEach(function(id){ document.getElementById(id).value = ''; });
+    document.getElementById('cpAlert').style.display = 'none';
+    document.getElementById('cpConfirmStep').style.display = 'none';
+    document.getElementById('cpSubmitBtn').style.display = 'block';
+    document.getElementById('cpStrBar').style.width = '0%';
+    document.getElementById('cpStrLabel').textContent = '';
+}
+document.getElementById('changePasswordModal').addEventListener('click', function(e) { if (e.target === this) closeCPModal(); });
+function toggleCPVis(inputId, iconId) {
+    var el = document.getElementById(inputId), ic = document.getElementById(iconId);
+    el.type = el.type === 'password' ? 'text' : 'password';
+    ic.className = el.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
+}
+function cpStrength(val) {
+    var bar = document.getElementById('cpStrBar'), lbl = document.getElementById('cpStrLabel');
+    var score = 0;
+    if (val.length >= 8) score++;
+    if (/[A-Z]/.test(val)) score++;
+    if (/[0-9]/.test(val)) score++;
+    if (/[^A-Za-z0-9]/.test(val)) score++;
+    if (val.length >= 12) score++;
+    var lvls = [{w:'20%',bg:'#ef4444',t:'Very weak'},{w:'40%',bg:'#f97316',t:'Weak'},{w:'60%',bg:'#eab308',t:'Fair'},{w:'80%',bg:'#22c55e',t:'Strong'},{w:'100%',bg:'#16a34a',t:'Very strong'}];
+    var lvl = lvls[Math.min(score - 1, 4)];
+    if (val && lvl) { bar.style.width = lvl.w; bar.style.background = lvl.bg; lbl.textContent = lvl.t; lbl.style.color = lvl.bg; }
+    else { bar.style.width = '0%'; lbl.textContent = ''; }
+}
+function showCPConfirm() {
+    var cur = document.getElementById('cpCurrent').value;
+    var nw  = document.getElementById('cpNew').value;
+    var cf  = document.getElementById('cpConfirm').value;
+    if (!cur || !nw || !cf) { showCPAlert('All fields are required.', 'danger'); return; }
+    if (nw !== cf) { showCPAlert('New passwords do not match.', 'danger'); return; }
+    document.getElementById('cpAlert').style.display = 'none';
+    document.getElementById('cpSubmitBtn').style.display = 'none';
+    document.getElementById('cpConfirmStep').style.display = 'block';
+}
+function showCPAlert(msg, type) {
+    var al = document.getElementById('cpAlert');
+    var colors = {success:'#d1fae5',danger:'#fee2e2',warning:'#fef3c7',info:'#dbeafe'};
+    var textColors = {success:'#065f46',danger:'#991b1b',warning:'#92400e',info:'#1e40af'};
+    al.style.cssText = 'display:flex;background:'+colors[type]+';color:'+textColors[type]+';border:1px solid '+textColors[type]+'33;padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:16px;align-items:center;gap:8px;';
+    al.innerHTML = '<i class="bi bi-'+(type==='success'?'check-circle':'exclamation-triangle')+'-fill"></i>'+msg;
+}
+function doChangePassword() {
+    var btn = document.querySelector('#cpConfirmStep .btn-danger');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving…';
+    fetch('<?= BASE_URL ?>/barangay_admin/settings.php', {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: 'action=change_password_ajax'
+            + '&current_password=' + encodeURIComponent(document.getElementById('cpCurrent').value)
+            + '&new_password='     + encodeURIComponent(document.getElementById('cpNew').value)
+            + '&confirm_password=' + encodeURIComponent(document.getElementById('cpConfirm').value)
+            + '&csrf_token='       + encodeURIComponent(document.querySelector('meta[name="csrf-token"]')?.content || '')
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.ok) {
+            showCPAlert(data.msg, 'success');
+            document.getElementById('cpConfirmStep').style.display = 'none';
+            setTimeout(function(){ window.location.href = '<?= BASE_URL ?>/logout.php'; }, 1800);
+        } else {
+            showCPAlert(data.msg, 'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Yes, Change It';
+            document.getElementById('cpConfirmStep').style.display = 'none';
+            document.getElementById('cpSubmitBtn').style.display = 'block';
+        }
+    })
+    .catch(function() {
+        showCPAlert('An error occurred. Please try again.', 'danger');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Yes, Change It';
+    });
+}
+</script>
+</body>
+</html>
+<?php
+    exit;
+}
+
 $pageIcon     = 'bi-gear-fill';
 $pageTitle    = 'Settings';
 $pageSubtitle = 'Manage your account and barangay configuration.';
@@ -438,6 +681,12 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
             .settings-wrap { flex-direction: column; }
             .settings-sidebar { width: 100%; min-width: unset; position: static; }
         }
+        <?php if ($isFrame): ?>
+        html { background: linear-gradient(160deg, #daeeff 0%, #c8e4f8 40%, #b8d8f0 70%, #a4caea 100%) fixed !important; min-height: 100%; }
+        body { background: transparent !important; overflow-x: hidden; overflow-y: auto; }
+        .sidebar, .topbar { display: none !important; }
+        .main-content { margin-left: 0 !important; margin-top: 0 !important; padding: 20px 22px 32px 22px !important; min-height: 100vh; background: transparent !important; overflow: visible !important; }
+        <?php endif; ?>
     </style>
 </head>
 <body>

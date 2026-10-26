@@ -134,6 +134,10 @@ $pageSubtitle = 'Detailed log of all system events and data changes.';
 
 <div class="main-content">
 
+    <a href="<?= BASE_URL ?>/barangay_admin/settings.php" class="btn btn-sm btn-outline-secondary mb-3" style="border-radius:8px;">
+        <i class="bi bi-arrow-left me-1"></i> Back to Settings
+    </a>
+
     <!-- Filters -->
     <div class="card mb-3">
         <div class="card-body py-2">
