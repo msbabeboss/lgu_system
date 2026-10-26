@@ -101,9 +101,10 @@ function saveSetting(PDO $db, string $key, string $val, int $userId): void {
 
 // ── Active tab ─────────────────────────────────────────────
 $tab = $_GET['tab'] ?? 'general';
-$validTabs = ['general','profile','security','notifications','archive','appearance','authenticator','barangay_management'];
+$validTabs = ['general','profile','security','notifications','archive','appearance','authenticator'];
 if (!in_array($tab, $validTabs)) $tab = 'general';
 $autoOpenChangePw = isset($_GET['action']) && $_GET['action'] === 'change_pw';
+$isAjax = !empty($_GET['ajax']) && $_GET['ajax'] === '1' && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET';
 
 $flash = getFlash('settings');
 $flash2fa = getFlash('2fa'); // also catch 2fa flashes redirected here
@@ -571,35 +572,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Load data for display ──────────────────────────────────
-$lc = $db->query("SELECT * FROM landing_content WHERE id=1")->fetch();
-if (!$lc) $lc = [];
+// On AJAX requests only fetch the data the requested tab actually needs.
+
+// general tab: needs landing_content
+$lc = [];
+if (!$isAjax || $tab === 'general') {
+    $lcRow = $db->query("SELECT * FROM landing_content WHERE id=1")->fetch();
+    $lc    = $lcRow ?: [];
+}
 
 // selfRow already loaded above (needed for 2FA before POST too)
 
-// All settings as assoc
+// security / notifications / archive / appearance / authenticator tabs: need system_settings
 $allSettings = [];
-foreach ($db->query("SELECT setting_key, setting_val FROM system_settings")->fetchAll() as $row) {
-    $allSettings[$row['setting_key']] = $row['setting_val'];
+if (!$isAjax || in_array($tab, ['security','notifications','archive','appearance','authenticator'])) {
+    foreach ($db->query("SELECT setting_key, setting_val FROM system_settings")->fetchAll() as $row) {
+        $allSettings[$row['setting_key']] = $row['setting_val'];
+    }
 }
 $s = fn(string $k, string $d = '') => $allSettings[$k] ?? $d;
 
-$barangays = $db->query("SELECT * FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
+// general + barangay_management tabs: need active barangays list
+$barangays = [];
+if (!$isAjax || in_array($tab, ['general','barangay_management'])) {
+    $barangays = $db->query("SELECT * FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
+}
 
 // ── Barangay Management tab data ───────────────────────────
-$bmAllBarangays  = $db->query("SELECT id, barangay_name, municipality FROM barangays ORDER BY barangay_name")->fetchAll();
-$bmSelBrgyId     = (int)($_GET['barangay_id'] ?? 0);
-$bmSelBrgy       = null;
-$bmOfficials     = [];
-if ($bmSelBrgyId) {
-    $bms = $db->prepare("SELECT * FROM barangays WHERE id=?");
-    $bms->execute([$bmSelBrgyId]);
-    $bmSelBrgy = $bms->fetch() ?: null;
+$bmAllBarangays = [];
+$bmSelBrgyId    = (int)($_GET['barangay_id'] ?? 0);
+$bmSelBrgy      = null;
+$bmOfficials    = [];
+$bmTermYears    = 3;
+if (!$isAjax || $tab === 'barangay_management') {
+    $bmAllBarangays = $db->query("SELECT id, barangay_name, municipality FROM barangays ORDER BY barangay_name")->fetchAll();
+    if ($bmSelBrgyId) {
+        $bms = $db->prepare("SELECT * FROM barangays WHERE id=?");
+        $bms->execute([$bmSelBrgyId]);
+        $bmSelBrgy = $bms->fetch() ?: null;
 
-    $bmo = $db->prepare("SELECT * FROM officials WHERE barangay_id=? ORDER BY FIELD(status,'active','inactive'), position, full_name");
-    $bmo->execute([$bmSelBrgyId]);
-    $bmOfficials = $bmo->fetchAll();
+        $bmo = $db->prepare("SELECT * FROM officials WHERE barangay_id=? ORDER BY FIELD(status,'active','inactive'), position, full_name");
+        $bmo->execute([$bmSelBrgyId]);
+        $bmOfficials = $bmo->fetchAll();
+    }
+    $bmTermYears = (int)getSetting($db, 'official_term_years', '3');
 }
-$bmTermYears = (int)getSetting($db, 'official_term_years', '3');
 
 $pageTitle = 'Settings';
 ?>
@@ -622,14 +639,18 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         /* ── Settings Layout ─────────────────────────────── */
-        .settings-wrap {
-            display: flex;
-            gap: 24px;
-            align-items: flex-start;
-        }
+        /* Suppress the global page fade-in on settings — prevents sidebar blink */
+        .main-content { animation: none !important; contain: none !important; }
+        #settingsContent { min-height: 400px; }
+
+        /* Settings sidebar lives OUTSIDE main-content — fixed, never repaints */
         .settings-sidebar {
+            position: fixed;
+            top: calc(var(--topbar-height) + 20px);
+            left: calc(var(--sidebar-width) + 22px);
             width: 220px;
-            min-width: 220px;
+            max-height: calc(100vh - var(--topbar-height) - 40px);
+            overflow-y: auto;
             background: rgba(255,255,255,0.7);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
@@ -637,9 +658,19 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             border-radius: 16px;
             padding: 12px 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            position: sticky;
-            top: 96px;
+            z-index: 50;
+            will-change: transform;
+            transform: translateZ(0);
         }
+        body.sidebar-collapsed .settings-sidebar {
+            left: calc(var(--sidebar-collapsed-width) + 22px);
+        }
+        /* main-content left-padding accounts for the fixed settings sidebar */
+        .settings-main {
+            margin-left: calc(220px + 24px);
+        }
+        .settings-wrap { display: block; }
+        .settings-content { display: block; }
         .settings-sidebar .s-title {
             font-size: 0.65rem;
             font-weight: 700;
@@ -669,7 +700,8 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             box-shadow: 0 3px 10px rgba(26,79,122,0.25);
         }
         .settings-sidebar .s-link.active i { color: #fff; }
-        .settings-content { flex: 1; min-width: 0; }
+        /* Smooth content swap */
+        #settingsContent { transition: opacity 0.12s ease; }
         .settings-card {
             background: rgba(255,255,255,0.72);
             backdrop-filter: blur(18px);
@@ -735,8 +767,8 @@ $pageSubtitle = 'Manage system configuration and preferences.';
         .badge-super { background: linear-gradient(90deg,#1a4f7a,#3a7fa8); color:#fff; }
         .badge-brgy  { background: rgba(26,79,122,0.1); color:#1a4f7a; }
         @media (max-width: 768px) {
-            .settings-wrap { flex-direction: column; }
-            .settings-sidebar { width: 100%; min-width: unset; position: static; }
+            .settings-sidebar { position: static; width: 100%; max-height: unset; margin-bottom: 16px; }
+            .settings-main { margin-left: 0; }
         }
     </style>
 </head>
@@ -744,9 +776,37 @@ $pageSubtitle = 'Manage system configuration and preferences.';
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
-<div class="main-content">
+<!-- ── Settings sidebar — outside main-content so page animation never touches it ── -->
+<nav class="settings-sidebar" id="settingsSidebar">
+    <div class="s-title">Settings</div>
+    <?php
+    $navItems = [
+        'general'       => ['bi-globe2',            'General'],
+        'profile'       => ['bi-person-fill',       'Profile'],
+        'security'      => ['bi-shield-lock-fill',  'Security'],
+        'notifications' => ['bi-bell-fill',         'Notifications'],
+        'archive'       => ['bi-archive-fill',      'Archive'],
+        'appearance'    => ['bi-palette-fill',      'Appearance'],
+        'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
+    ];
+    foreach ($navItems as $t => [$icon, $label]):
+    ?>
+    <a href="?tab=<?= $t ?>" class="s-link <?= $tab===$t?'active':'' ?>"
+       data-tab="<?= $t ?>" onclick="loadTab('<?= $t ?>',this);return false;">
+        <i class="bi <?= $icon ?>"></i> <?= $label ?>
+    </a>
+    <?php endforeach; ?>
+    <div class="s-title mt-3">Account</div>
+    <a href="#" class="s-link" onclick="document.getElementById('changePasswordModal').style.display='flex';return false;">
+        <i class="bi bi-key-fill"></i> Change Password
+    </a>
+    <a href="<?= BASE_URL ?>/super_admin/audit_log.php" class="s-link">
+        <i class="bi bi-shield-check-fill"></i> Audit Log
+    </a>
+</nav>
 
-    
+<div class="main-content">
+<div class="settings-main">
 
     <?php if ($flash): ?>
         <div class="alert alert-<?= $flash['type'] ?> alert-dismissible fade show mb-3">
@@ -757,35 +817,9 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <?php endif; ?>
 
     <div class="settings-wrap">
-        <!-- ── Settings Sidebar ──────────────────────────── -->
-        <nav class="settings-sidebar">
-            <div class="s-title">Settings</div>
-            <?php
-            $navItems = [
-                'general'            => ['bi-globe2',            'General'],
-                'profile'            => ['bi-person-fill',       'Profile'],
-                'security'           => ['bi-shield-lock-fill',  'Security'],
-                'notifications'      => ['bi-bell-fill',         'Notifications'],
-                'archive'            => ['bi-archive-fill',      'Archive'],
-                'appearance'         => ['bi-palette-fill',      'Appearance'],
-                'authenticator'      => ['bi-shield-check-fill', 'Authenticator'],
-                'barangay_management'=> ['bi-buildings-fill',    'Barangay Mgmt'],
-            ];
-            foreach ($navItems as $t => [$icon, $label]):
-            ?>
-            <a href="?tab=<?= $t ?>" class="s-link <?= $tab===$t?'active':'' ?>">
-                <i class="bi <?= $icon ?>"></i> <?= $label ?>
-            </a>
-            <?php endforeach; ?>
-
-            <div class="s-title mt-3">Account</div>
-            <a href="#" class="s-link" onclick="document.getElementById('changePasswordModal').style.display='flex';return false;">
-                <i class="bi bi-key-fill"></i> Change Password
-            </a>
-        </nav>
-
         <!-- ── Settings Content ─────────────────────────── -->
-        <div class="settings-content">
+        <?php if ($isAjax) ob_start(); ?>
+        <div class="settings-content" id="settingsContent">
 
             <?php /* ══════════════════════════════════════════
                TAB: GENERAL (Landing Page)
@@ -2368,7 +2402,9 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             <?php endif; // end tab === barangay_management ?>
 
         </div><!-- end settings-content -->
+        <?php if ($isAjax): echo ob_get_clean(); exit; endif; ?>
     </div><!-- end settings-wrap -->
+</div><!-- end settings-main -->
 </div><!-- end main-content -->
 
 <!-- ══════════════════════════════════════════════════════════
@@ -2797,6 +2833,101 @@ function updateFontSize(idx) {
     document.documentElement.style.fontSize = val + '%';
     localStorage.setItem('fontSize', val);
 }
+</script>
+
+<script>
+/* ── Settings AJAX tab switching — no blink, sidebar stays fixed ── */
+(function () {
+    const BASE = '<?= BASE_URL ?>/super_admin/settings.php';
+    const contentEl = () => document.getElementById('settingsContent');
+
+    function setActive(tab) {
+        document.querySelectorAll('#settingsSidebar .s-link[data-tab]').forEach(a => {
+            a.classList.toggle('active', a.dataset.tab === tab);
+        });
+    }
+
+    window.loadTab = function (tab, el) {
+        // Optimistic active state — instant
+        document.querySelectorAll('#settingsSidebar .s-link[data-tab]').forEach(a => a.classList.remove('active'));
+        if (el) el.classList.add('active');
+
+        history.pushState({tab}, '', '?tab=' + tab);
+
+        const el2 = contentEl();
+        el2.style.minHeight = el2.offsetHeight + 'px';
+        el2.style.opacity = '0.4';
+
+        fetch(BASE + '?tab=' + encodeURIComponent(tab) + '&ajax=1', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.text())
+        .then(html => {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const inner = tmp.querySelector('#settingsContent');
+            el2.innerHTML = inner ? inner.innerHTML : html;
+            el2.style.transition = 'opacity 0.12s ease';
+            el2.style.opacity = '1';
+            el2.style.minHeight = '';
+            bindForms();
+            // Re-run inline scripts using requestAnimationFrame to avoid
+            // synchronous forced layout that causes the settings sidebar to blink.
+            const scripts = Array.from(el2.querySelectorAll('script'));
+            if (scripts.length) {
+                requestAnimationFrame(() => {
+                    scripts.forEach(s => {
+                        const ns = document.createElement('script');
+                        ns.textContent = s.textContent;
+                        document.body.appendChild(ns).parentNode.removeChild(ns);
+                    });
+                });
+            }
+        })
+        .catch(() => { window.location.href = BASE + '?tab=' + tab; });
+    };
+
+    // Intercept form POSTs inside the content area — submit via fetch, reload same tab
+    function bindForms() {
+        const el2 = contentEl();
+        if (!el2) return;
+        el2.querySelectorAll('form[method="post"], form[method="POST"]').forEach(form => {
+            if (form.dataset.ajaxBound) return;
+            form.dataset.ajaxBound = '1';
+            form.addEventListener('submit', function (e) {
+                // Skip forms that have file uploads with enctype multipart — let them POST normally
+                // but re-intercept the redirect afterward
+                const tab = new URLSearchParams(window.location.search).get('tab') || 'general';
+                e.preventDefault();
+
+                const formData = new FormData(form);
+                fetch(form.action || BASE + '?tab=' + tab, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(r => {
+                    // Server will redirect — just reload the current tab via AJAX
+                    const activeLink = document.querySelector('#settingsSidebar .s-link.active[data-tab]');
+                    const activeTab = activeLink ? activeLink.dataset.tab : tab;
+                    loadTab(activeTab, activeLink);
+                })
+                .catch(() => {
+                    // Fallback hard reload
+                    window.location.href = BASE + '?tab=' + tab;
+                });
+            });
+        });
+    }
+
+    // Back/forward button support
+    window.addEventListener('popstate', function (e) {
+        const tab = (e.state && e.state.tab) || 'general';
+        loadTab(tab, document.querySelector('#settingsSidebar .s-link[data-tab="' + tab + '"]'));
+    });
+
+    // Bind forms on initial load
+    bindForms();
+})();
 </script>
 </body>
 </html>
