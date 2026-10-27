@@ -36,6 +36,10 @@ try {
 <!-- CSRF meta tag — available to all fetch() calls on authenticated pages -->
 <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
 <nav class="topbar">
+    <button class="sidebar-toggle-btn" type="button" onclick="toggleResponsiveSidebar()"
+            aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false" title="Open navigation">
+        <i class="bi bi-list" id="responsiveSidebarToggleIcon" aria-hidden="true"></i>
+    </button>
     <!-- Page title — set $pageIcon, $pageTitle, $pageSubtitle before including topbar -->
     <?php if (!empty($pageTitle)): ?>
     <div class="topbar-page-title">
@@ -174,6 +178,8 @@ try {
 
     </div><!-- end right side -->
 </nav>
+<button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Close navigation"
+        onclick="setResponsiveSidebarOpen(false)"></button>
 
 <!-- ── Realtime Notification Toast Container ─────────────────────────────── -->
 <div id="notifToastContainer" aria-live="polite" aria-atomic="true"
@@ -289,6 +295,57 @@ try {
 <script src="<?= BASE_URL ?>/assets/js/datepicker.js?v=2.0"></script>
 
 <script>
+function setResponsiveSidebarOpen(isOpen) {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const toggle = document.querySelector('.sidebar-toggle-btn');
+    if (!sidebar) return;
+
+    sidebar.classList.toggle('show', isOpen);
+    document.body.classList.toggle('sidebar-open', isOpen);
+    if (backdrop) backdrop.classList.toggle('is-visible', isOpen);
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', String(isOpen));
+        toggle.setAttribute('aria-label', isOpen ? 'Close navigation' : 'Open navigation');
+        toggle.title = isOpen ? 'Close navigation' : 'Open navigation';
+    }
+}
+
+function toggleResponsiveSidebar() {
+    if (window.innerWidth < 769) {
+        const sidebar = document.getElementById('sidebar');
+        setResponsiveSidebarOpen(!sidebar?.classList.contains('show'));
+        return;
+    }
+
+    document.body.classList.toggle('sidebar-collapsed');
+    const collapsed = document.body.classList.contains('sidebar-collapsed');
+    localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+    const toggle = document.querySelector('.sidebar-toggle-btn');
+    const icon = document.getElementById('responsiveSidebarToggleIcon');
+    if (toggle) {
+        toggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
+        toggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
+    }
+    if (icon) icon.className = collapsed ? 'bi bi-layout-sidebar' : 'bi bi-list';
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(function (link) {
+        if (collapsed && !link._bsTooltip && typeof bootstrap !== 'undefined') {
+            link._bsTooltip = new bootstrap.Tooltip(link, { placement: 'right', trigger: 'hover' });
+        } else if (!collapsed && link._bsTooltip) {
+            link._bsTooltip.dispose();
+            link._bsTooltip = null;
+        }
+    });
+}
+
+document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') setResponsiveSidebarOpen(false);
+});
+
+window.addEventListener('resize', function () {
+    if (window.innerWidth >= 769) setResponsiveSidebarOpen(false);
+});
+
 // ── Sidebar collapse/expand ───────────────────────────────
 function toggleSidebar() {
     const body    = document.body;
@@ -328,6 +385,13 @@ function toggleSidebar() {
     if (localStorage.getItem('sidebarCollapsed') === '1' && window.innerWidth >= 769) {
         document.body.classList.add('sidebar-collapsed');
         document.addEventListener('DOMContentLoaded', function() {
+            const toggle = document.querySelector('.sidebar-toggle-btn');
+            const responsiveIcon = document.getElementById('responsiveSidebarToggleIcon');
+            if (toggle) {
+                toggle.setAttribute('aria-label', 'Expand navigation');
+                toggle.title = 'Expand navigation';
+            }
+            if (responsiveIcon) responsiveIcon.className = 'bi bi-layout-sidebar';
             const icon = document.getElementById('sidebarToggleIcon');
             if (icon) icon.className = 'bi bi-layout-sidebar';
             // Init tooltips
