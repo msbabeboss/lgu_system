@@ -66,12 +66,19 @@ class TOTP
         return false;
     }
 
-    // Build a QR code URL using Google Charts API
-    public static function getQRCodeUrl(string $secret, string $email, string $issuer = 'LGU System'): string
+    // Generate the QR code locally so setup does not depend on an external image service.
+    public static function getQRCodeDataUri(string $secret, string $email, string $issuer = 'LGU System'): string
     {
         $issuer  = rawurlencode($issuer);
         $email   = rawurlencode($email);
         $uri     = "otpauth://totp/{$issuer}:{$email}?secret={$secret}&issuer={$issuer}&algorithm=SHA1&digits=6&period=30";
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . rawurlencode($uri);
+
+        $qrCode = \Endroid\QrCode\QrCode::create($uri)
+            ->setSize(200)
+            ->setMargin(10);
+
+        return (new \Endroid\QrCode\Writer\SvgWriter())
+            ->write($qrCode)
+            ->getDataUri();
     }
 }

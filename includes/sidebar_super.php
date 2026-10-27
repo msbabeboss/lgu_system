@@ -1,7 +1,6 @@
 <?php
 $currentPage = basename($_SERVER['PHP_SELF']);
 $u = currentUser();
-$settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archive.php']);
 $brSubPages   = ['barangay_records_barangays.php','barangay_records_residents.php',
                   'barangay_records_households.php','barangay_records_officials.php',
                   'barangay_records_reports.php','barangay_records_certificates.php'];
@@ -98,52 +97,32 @@ $brActive     = ($currentPage === 'barangay_records.php' || in_array($currentPag
            data-bs-toggle="tooltip" data-bs-placement="right" title="Activity Log">
             <i class="bi bi-clock-history"></i> <span class="nav-link-text">Activity Log</span>
         </a>
+        <a href="<?= BASE_URL ?>/super_admin/archive.php"
+           class="nav-link <?= $currentPage === 'archive.php' ? 'active' : '' ?>"
+           data-bs-toggle="tooltip" data-bs-placement="right" title="Archive">
+            <i class="bi bi-archive-fill"></i> <span class="nav-link-text">Archive</span>
+        </a>
 
         <div class="nav-section-title">Configuration</div>
-        <!-- Settings: pure dropdown toggle, no navigation -->
-        <?php $settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archive.php']); ?>
-        <div class="nav-has-sub <?= $settingsOpen ? 'nav-sub-open' : '' ?>">
-            <a class="nav-link nav-parent-link <?= $settingsOpen ? 'active' : '' ?>"
-               href="#" onclick="sidebarSubToggle(event, this); return false;">
-                <i class="bi bi-gear-fill"></i>
-                <span class="nav-link-text">Settings</span>
-                <i class="bi bi-chevron-down nav-sub-arrow"></i>
-            </a>
-            <div class="nav-sub-items">
-                <a href="<?= BASE_URL ?>/super_admin/settings.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'settings.php' ? 'active' : '' ?>">
-                    <i class="bi bi-sliders"></i>
-                    <span class="nav-link-text">System Settings</span>
-                </a>
-                <a href="<?= BASE_URL ?>/super_admin/audit_log.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'audit_log.php' ? 'active' : '' ?>">
-                    <i class="bi bi-shield-lock-fill"></i>
-                    <span class="nav-link-text">Audit Log</span>
-                </a>
-                <a href="<?= BASE_URL ?>/super_admin/archive.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'archive.php' ? 'active' : '' ?>">
-                    <i class="bi bi-archive-fill"></i>
-                    <span class="nav-link-text">Archive</span>
-                </a>
-            </div>
-        </div>
+        <a href="<?= BASE_URL ?>/super_admin/settings.php"
+           class="nav-link <?= $currentPage === 'settings.php' ? 'active' : '' ?>"
+           data-bs-toggle="tooltip" data-bs-placement="right" title="Settings">
+            <i class="bi bi-gear-fill"></i> <span class="nav-link-text">Settings</span>
+        </a>
     </nav>
 
     <div class="sidebar-user">
         <?php
-        $sidebarPhoto = $_SESSION['user_photo'] ?? null;
-        if (!$sidebarPhoto) {
-            try {
-                $spStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-                $spStmt->execute([$u['id']]);
-                $sidebarPhoto = $spStmt->fetchColumn() ?: null;
-                if ($sidebarPhoto) $_SESSION['user_photo'] = $sidebarPhoto;
-            } catch (Exception $e) {}
-        }
+        $spStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
+        $spStmt->execute([$u['id']]);
+        $sidebarPhoto = $spStmt->fetchColumn() ?: null;
+        $_SESSION['user_photo'] = $sidebarPhoto;
+        $sidebarPhotoPath = $sidebarPhoto ? UPLOAD_PATH . 'profile_photos/' . $sidebarPhoto : '';
+        $sidebarPhotoVersion = $sidebarPhotoPath && is_file($sidebarPhotoPath) ? filemtime($sidebarPhotoPath) : '';
         ?>
         <div class="sidebar-user-avatar" style="overflow:hidden;padding:0;<?= $sidebarPhoto ? 'background:none;' : '' ?>">
             <?php if ($sidebarPhoto): ?>
-                <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . $sidebarPhoto) ?>"
+                <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . rawurlencode($sidebarPhoto) . ($sidebarPhotoVersion ? '?v=' . $sidebarPhotoVersion : '')) ?>"
                      alt="Profile" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
             <?php else: ?>
                 <?= strtoupper(substr($u['name'], 0, 2)) ?>

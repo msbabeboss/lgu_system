@@ -24,7 +24,7 @@ if ($userFilter) $baseWhere .= " AND al.user_id = $userFilter";
 
 // Pagination
 $perPage     = 10;
-$currentPage = max(1, (int)($_GET['page'] ?? 1));
+$activityPage = max(1, (int)($_GET['page'] ?? 1));
 
 $totalRows = (int)$db->query("
     SELECT COUNT(*)
@@ -33,8 +33,8 @@ $totalRows = (int)$db->query("
     $baseWhere
 ")->fetchColumn();
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
-$currentPage = min($currentPage, $totalPages);
-$offset      = ($currentPage - 1) * $perPage;
+$activityPage = min($activityPage, $totalPages);
+$offset      = ($activityPage - 1) * $perPage;
 
 $logs = $db->query("
     SELECT al.id, al.action, al.description, al.created_at,
@@ -75,6 +75,21 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <style>
+        .activity-pagination {
+            display: flex; justify-content: center;
+            padding: 12px; background: #f1f6fb;
+            border-top: 1px solid #e2e8f0;
+        }
+        .pagination .page-link {
+            border-radius: 6px !important; margin: 0 1px; min-width: 30px;
+            text-align: center; font-size: 0.78rem; padding: 3px 8px;
+        }
+        .activity-log-table tbody td {
+            padding-top: 6px !important;
+            padding-bottom: 6px !important;
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -142,7 +157,7 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
             <span class="text-muted" style="font-size:0.72rem;">Super administrators only</span>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover mb-0" style="font-size:0.85rem;">
+            <table class="table table-hover mb-0 activity-log-table" style="font-size:0.85rem;">
                 <thead class="table-light">
                     <tr>
                         <th class="ps-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;width:60px;">#</th>
@@ -202,19 +217,31 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
                 </tbody>
             </table>
         </div>
-    </div>
 
-    <!-- Pagination -->
-    <?php if ($totalPages > 1): ?>
-    <?php
-        $qp = $_GET; unset($qp['page']);
-        $bq = http_build_query($qp);
-        $bu = '?' . ($bq ? $bq . '&' : '');
-        $currentPage = (int)$currentPage; $totalPages = (int)$totalPages;
-        $totalRows = (int)$totalRows; $perPage = (int)$perPage;
-        $win = 2; $ps = max(1, $currentPage - $win); $pe = min($totalPages, $currentPage + $win);
-    ?>
-    <?php $page = $currentPage; $totalCount = $totalRows; $offset = ($page-1)*$perPage; $paginationBase = $bu; $paginationLabel = 'record'; include __DIR__ . '/../includes/pagination.php'; ?>
+        <?php if ($totalRows > 0):
+            $queryParams = $_GET;
+            unset($queryParams['page']);
+            $baseQuery = http_build_query($queryParams);
+            $baseUrl = '?' . ($baseQuery ? $baseQuery . '&' : '');
+            $pageStart = max(1, $activityPage - 2);
+            $pageEnd = min($totalPages, $activityPage + 2);
+        ?>
+        <nav class="activity-pagination" aria-label="Activity log table pagination">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item <?= $activityPage <= 1 ? 'disabled' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . max(1, $activityPage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page">&laquo;</a>
+                </li>
+                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
+                <li class="page-item <?= $pageNumber === $activityPage ? 'active' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $activityPage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
+                </li>
+                <?php endfor; ?>
+                <li class="page-item <?= $activityPage >= $totalPages ? 'disabled' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . min($totalPages, $activityPage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page">&raquo;</a>
+                </li>
+            </ul>
+        </nav>
+    </div>
     <?php endif; ?>
 
 </div><!-- /.main-content -->

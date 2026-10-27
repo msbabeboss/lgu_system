@@ -187,29 +187,28 @@ $pageSubtitle = '';
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
 <style>
 /* ── Layout ─────────────────────────────────────────────── */
-body{background:#0f172a;}
-.main-content{background:#0f172a;margin-top:80px !important;padding:12px 20px 20px 22px;}
+body{background:#f0f6fb;}
+.main-content{background:#f0f6fb;margin-top:80px !important;padding:12px 20px 20px 22px;}
 .topbar{height:80px !important;}
 .sidebar-brand{height:80px !important;}
 
 /* ── Section Titles ─────────────────────────────────────── */
-.sec-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
-.sec-title::after{content:'';flex:1;height:1px;background:#334155;}
+.sec-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#3a7fa8;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.sec-title::after{content:'';flex:1;height:1px;background:#d0e8f4;}
 
 /* ── KPI / Stat Cards ───────────────────────────────────── */
-.pcard{border-radius:14px;padding:14px 14px 10px;display:flex;flex-direction:column;gap:9px;height:100%;transition:transform .15s,box-shadow .15s;border:1.5px solid rgba(255,255,255,0.08);box-shadow:0 2px 8px rgba(0,0,0,0.25);}
-.pcard:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35);}
+.pcard{background:#fff;border-radius:14px;padding:14px 14px 10px;display:flex;flex-direction:column;gap:9px;height:100%;transition:transform .15s,box-shadow .15s;border:1.5px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.pcard:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.12);border-color:#c5d8e8;}
 .pcard-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem;}
-.pcard-val{font-size:1.4rem;font-weight:800;color:#fff;line-height:1.1;}
-.pcard-lbl{font-size:.7rem;color:rgba(255,255,255,0.75);font-weight:500;line-height:1.3;}
+.pcard-val{font-size:1.4rem;font-weight:800;color:#0f172a;line-height:1.1;}
+.pcard-lbl{font-size:.7rem;color:#475569;font-weight:500;line-height:1.3;}
 
 /* ── Chart Cards ────────────────────────────────────────── */
-.chart-card{background:#1e293b;border:1.5px solid #334155;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.2);}
-.chart-card .ch{padding:8px 14px;font-size:.75rem;font-weight:600;color:#e2e8f0;background:#0f172a;border-bottom:1.5px solid #334155;display:flex;align-items:center;gap:6px;justify-content:space-between;}
+.chart-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.chart-card .ch{padding:8px 14px;font-size:.75rem;font-weight:600;color:#1e293b;background:#f8fafc;border-bottom:1.5px solid #e2e8f0;display:flex;align-items:center;gap:6px;justify-content:space-between;}
 .chart-card .cb{padding:10px 12px;}
-.table{--bs-table-bg:transparent;--bs-table-color:#e2e8f0;--bs-table-border-color:#334155;}
-.table th{font-size:.68rem;text-transform:uppercase;color:#94a3b8;font-weight:600;}
-.table td{font-size:.75rem;color:#cbd5e1;}
+.table th{font-size:.68rem;text-transform:uppercase;color:#64748b;font-weight:600;}
+.table td{font-size:.75rem;color:#334155;}
 .badge{font-size:.63rem;}
 .btn-xs{padding:1px 7px;font-size:.7rem;}
 
@@ -220,27 +219,24 @@ body{background:#0f172a;}
 .dl-box-pdf{background:#dc2626;color:#fff;}.dl-box-pdf:hover{color:#fff;}
 
 /* ── Quick Links ────────────────────────────────────────── */
-.qlink-card{background:#1e293b;border:1.5px solid #334155;border-radius:12px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:85px;gap:8px;text-decoration:none;transition:transform .15s,background .15s,box-shadow .15s;}
-.qlink-card:hover{transform:translateY(-2px);background:#0f172a;box-shadow:0 6px 18px rgba(0,0,0,.4);}
-.qlink-icon{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;flex-shrink:0;}
-.qlink-lbl{font-size:.72rem;font-weight:700;color:#e2e8f0;line-height:1.2;}
+.qlink-card{background:#1e3a5f;border:1.5px solid #2d5a8e;border-radius:12px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:85px;gap:8px;text-decoration:none;transition:transform .15s,background .15s,box-shadow .15s;}
+.qlink-card:hover{transform:translateY(-2px);background:#152d4a;box-shadow:0 6px 18px rgba(0,0,0,.18);}
+.qlink-icon{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;flex-shrink:0;}
+.qlink-lbl{font-size:.72rem;font-weight:700;color:#fff;line-height:1.2;}
+
+/* ── Filter bar ─────────────────────────────────────────── */
+.filter-bar{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 16px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}
+.filter-bar .form-select{font-size:.78rem;}
 
 /* ── Welcome Banner ─────────────────────────────────────── */
-.welcome-banner{background-image:url('<?= BASE_URL ?>/assets/img/bgimage.webp');background-image:-webkit-image-set(url('<?= BASE_URL ?>/assets/img/bgimage.webp') 1x);background-image:url('<?= BASE_URL ?>/assets/img/bgimage.jpg');background-size:cover;background-position:center;border-radius:18px;padding:22px 28px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;overflow:hidden;position:relative;min-height:140px;box-shadow:0 4px 20px rgba(2,16,36,0.22);}
+.welcome-banner{background-image:url('<?= BASE_URL ?>/assets/img/bgimage.webp');background-image:url('<?= BASE_URL ?>/assets/img/bgimage.jpg');background-size:cover;background-position:center;border-radius:18px;padding:22px 28px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;overflow:hidden;position:relative;min-height:140px;box-shadow:0 4px 20px rgba(2,16,36,0.22);}
 .welcome-banner::before{content:'';position:absolute;inset:0;background:linear-gradient(to right,rgba(5,38,89,0.88) 0%,rgba(10,60,140,0.70) 50%,rgba(5,38,89,0.15) 100%);z-index:0;pointer-events:none;}
 .welcome-banner-img{position:absolute;top:0;right:0;bottom:0;width:55%;background-size:cover;background-position:center right;background-repeat:no-repeat;-webkit-mask-image:linear-gradient(to right,transparent 0%,rgba(0,0,0,0.18) 30%,rgba(0,0,0,0.32) 100%);mask-image:linear-gradient(to right,transparent 0%,rgba(0,0,0,0.18) 30%,rgba(0,0,0,0.32) 100%);opacity:0.38;pointer-events:none;}
 .welcome-banner-text{position:relative;z-index:1;}
 .welcome-banner-title{font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-0.01em;margin-bottom:5px;line-height:1.2;}
 .welcome-banner-sub{font-size:0.85rem;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
-.welcome-banner-sub strong{color:#fff;font-weight:700;}
 .banner-dot{width:4px;height:4px;background:rgba(255,255,255,0.5);border-radius:50%;display:inline-block;flex-shrink:0;}
 .welcome-banner-icon{position:relative;z-index:1;font-size:3.2rem;color:rgba(255,255,255,0.15);flex-shrink:0;line-height:1;}
-html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
-
-/* ── Filter bar dark override ───────────────────────────── */
-.filter-bar{background:#1e293b;border:1.5px solid #334155;border-radius:12px;padding:10px 16px;box-shadow:0 1px 4px rgba(0,0,0,0.2);}
-.filter-bar .form-select{background:#0f172a;color:#e2e8f0;border-color:#334155;font-size:.78rem;}
-.filter-bar .form-select option{background:#0f172a;}
 </style>
 </head>
 <body>
@@ -287,59 +283,59 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
 
   <!-- ② FILTER BAR + DOWNLOAD BUTTONS ────────────────────── -->
   <div class="filter-bar mb-3 d-flex justify-content-end align-items-center gap-2 flex-wrap">
-    <form method="GET" style="display:flex;align-items:center;gap:8px;">
-      <select name="barangay_id" class="form-select form-select-sm" style="width:200px;" onchange="this.form.submit()">
+    <form method="GET" id="brgyFilterForm" style="display:flex;align-items:center;gap:8px;">
+      <select name="barangay_id" id="brgySelect" class="form-select form-select-sm" style="width:200px;">
         <option value="">All Barangays</option>
         <?php foreach ($barangays as $b): ?>
           <option value="<?= $b['id'] ?>" <?= $selectedBrgy==$b['id']?'selected':'' ?>><?= htmlspecialchars($b['barangay_name']) ?></option>
         <?php endforeach; ?>
       </select>
     </form>
-    <a href="export_dashboard_records.php?format=excel<?= $selectedBrgy ? '&barangay_id='.$selectedBrgy : '' ?>"
+    <a id="excelLink" href="export_dashboard_records.php?format=excel<?= $selectedBrgy ? '&barangay_id='.$selectedBrgy : '' ?>"
        class="dl-box dl-box-excel"><i class="bi bi-file-earmark-excel-fill"></i> Download Excel</a>
-    <a href="export_dashboard_records.php?format=pdf<?= $selectedBrgy ? '&barangay_id='.$selectedBrgy : '' ?>"
+    <a id="pdfLink" href="export_dashboard_records.php?format=pdf<?= $selectedBrgy ? '&barangay_id='.$selectedBrgy : '' ?>"
        target="_blank" class="dl-box dl-box-pdf"><i class="bi bi-file-earmark-pdf-fill"></i> Download PDF</a>
   </div>
 
   <!-- ③ KPI CARDS — PRIMARY ───────────────────────────────── -->
-  <div class="sec-title"><i class="bi bi-speedometer2 text-info"></i>Consolidated Overview</div>
+  <div class="sec-title"><i class="bi bi-speedometer2 text-primary"></i>Consolidated Overview</div>
   <div class="row g-2 mb-2">
     <div class="col-6 col-md-3">
       <a href="barangay_records.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#1e3a5f;">
+        <div class="pcard" style="background:#dbeafe;">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-people-fill" style="color:#fff;"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['total_residents']) ?></div><div class="pcard-lbl">Total Residents</div></div>
+            <div class="pcard-icon" style="background:#93c5fd;"><i class="bi bi-people-fill" style="color:#1e40af;"></i></div>
+            <div><div class="pcard-val" style="color:#1e3a8a;" id="stat_total_residents"><?= number_format($stats['total_residents']) ?></div><div class="pcard-lbl">Total Residents</div></div>
           </div>
         </div>
       </a>
     </div>
     <div class="col-6 col-md-3">
       <a href="barangay_records.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#14532d;">
+        <div class="pcard" style="background:#dcfce7;">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#166534;"><i class="bi bi-house-fill" style="color:#fff;"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['total_households']) ?></div><div class="pcard-lbl">Total Households</div></div>
+            <div class="pcard-icon" style="background:#86efac;"><i class="bi bi-house-fill" style="color:#166534;"></i></div>
+            <div><div class="pcard-val" style="color:#14532d;" id="stat_total_households"><?= number_format($stats['total_households']) ?></div><div class="pcard-lbl">Total Households</div></div>
           </div>
         </div>
       </a>
     </div>
     <div class="col-6 col-md-3">
       <a href="barangay_records.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#7f1d1d;">
+        <div class="pcard" style="background:#fee2e2;">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#991b1b;"><i class="bi bi-shield-exclamation" style="color:#fff;"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['total_blotter']) ?></div><div class="pcard-lbl">Total Blotter Cases</div></div>
+            <div class="pcard-icon" style="background:#fca5a5;"><i class="bi bi-shield-exclamation" style="color:#991b1b;"></i></div>
+            <div><div class="pcard-val" style="color:#7f1d1d;" id="stat_total_blotter"><?= number_format($stats['total_blotter']) ?></div><div class="pcard-lbl">Total Blotter Cases</div></div>
           </div>
         </div>
       </a>
     </div>
     <div class="col-6 col-md-3">
       <a href="barangay_records.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#4c1d95;">
+        <div class="pcard" style="background:#ede9fe;">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#5b21b6;"><i class="bi bi-file-earmark-check-fill" style="color:#fff;"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['total_certs']) ?></div><div class="pcard-lbl">Certificates Issued</div></div>
+            <div class="pcard-icon" style="background:#c4b5fd;"><i class="bi bi-file-earmark-check-fill" style="color:#5b21b6;"></i></div>
+            <div><div class="pcard-val" style="color:#4c1d95;" id="stat_total_certs"><?= number_format($stats['total_certs']) ?></div><div class="pcard-lbl">Certificates Issued</div></div>
           </div>
         </div>
       </a>
@@ -350,34 +346,34 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
   <div class="sec-title mt-2"><i class="bi bi-person-lines-fill text-primary"></i>Resident Status</div>
   <div class="row g-2 mb-2">
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f;">
+      <div class="pcard" style="background:#e0f2fe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-person-check-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_active']) ?></div><div class="pcard-lbl">Active</div></div>
+          <div class="pcard-icon" style="background:#7dd3fc;"><i class="bi bi-person-check-fill" style="color:#0c4a6e;"></i></div>
+          <div><div class="pcard-val" style="color:#0c4a6e;" id="stat_res_active"><?= number_format($stats['res_active']) ?></div><div class="pcard-lbl">Active</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e293b;">
+      <div class="pcard" style="background:#f1f5f9;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#334155;"><i class="bi bi-person-dash-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_inactive']) ?></div><div class="pcard-lbl">Inactive</div></div>
+          <div class="pcard-icon" style="background:#cbd5e1;"><i class="bi bi-person-dash-fill" style="color:#475569;"></i></div>
+          <div><div class="pcard-val" style="color:#334155;" id="stat_res_inactive"><?= number_format($stats['res_inactive']) ?></div><div class="pcard-lbl">Inactive</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f;">
+      <div class="pcard" style="background:#dbeafe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-person-walking" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Transferred</div></div>
+          <div class="pcard-icon" style="background:#93c5fd;"><i class="bi bi-person-walking" style="color:#1e40af;"></i></div>
+          <div><div class="pcard-val" style="color:#1e3a8a;" id="stat_res_transferred"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Transferred</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#7f1d1d;">
+      <div class="pcard" style="background:#fef2f2;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#991b1b;"><i class="bi bi-person-x-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_deceased']) ?></div><div class="pcard-lbl">Deceased</div></div>
+          <div class="pcard-icon" style="background:#fecaca;"><i class="bi bi-person-x-fill" style="color:#991b1b;"></i></div>
+          <div><div class="pcard-val" style="color:#7f1d1d;" id="stat_res_deceased"><?= number_format($stats['res_deceased']) ?></div><div class="pcard-lbl">Deceased</div></div>
         </div>
       </div>
     </div>
@@ -386,34 +382,34 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
   <!-- ③c TRANSFERRED SUMMARY ──────────────────────────────── -->
   <div class="row g-2 mb-3">
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f;">
+      <div class="pcard" style="background:#e0f2fe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-person-walking" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Total Transferred</div></div>
+          <div class="pcard-icon" style="background:#7dd3fc;"><i class="bi bi-person-walking" style="color:#0c4a6e;"></i></div>
+          <div><div class="pcard-val" style="color:#0c4a6e;" id="stat_total_transferred"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Total Transferred</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#9d174d;">
+      <div class="pcard" style="background:#fce7f3;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#be185d;"><i class="bi bi-arrow-up-right-circle-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format(array_sum(array_column($transferredPerBrgy,'outside_transfer'))) ?></div><div class="pcard-lbl">Outside Municipality</div></div>
+          <div class="pcard-icon" style="background:#f9a8d4;"><i class="bi bi-arrow-up-right-circle-fill" style="color:#9d174d;"></i></div>
+          <div><div class="pcard-val" style="color:#831843;" id="stat_outside_transfer"><?= number_format(array_sum(array_column($transferredPerBrgy,'outside_transfer'))) ?></div><div class="pcard-lbl">Outside Municipality</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f;">
+      <div class="pcard" style="background:#dbeafe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-arrow-left-right" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format(array_sum(array_column($transferredPerBrgy,'local_transfer'))) ?></div><div class="pcard-lbl">Local Transfer</div></div>
+          <div class="pcard-icon" style="background:#93c5fd;"><i class="bi bi-arrow-left-right" style="color:#1e40af;"></i></div>
+          <div><div class="pcard-val" style="color:#1e3a8a;" id="stat_local_transfer"><?= number_format(array_sum(array_column($transferredPerBrgy,'local_transfer'))) ?></div><div class="pcard-lbl">Local Transfer</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#78350f;">
+      <div class="pcard" style="background:#fef3c7;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#92400e;"><i class="bi bi-buildings-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= count($transferredPerBrgy) ?></div><div class="pcard-lbl">Barangays Affected</div></div>
+          <div class="pcard-icon" style="background:#fcd34d;"><i class="bi bi-buildings-fill" style="color:#92400e;"></i></div>
+          <div><div class="pcard-val" style="color:#78350f;" id="stat_brgy_affected"><?= count($transferredPerBrgy) ?></div><div class="pcard-lbl">Barangays Affected</div></div>
         </div>
       </div>
     </div>
@@ -425,8 +421,8 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
     <!-- Left: Line Chart -->
     <div class="col-md-7">
       <div class="chart-card h-100">
-        <div class="ch" style="background:#0f172a;color:#e2e8f0;">
-          <span><i class="bi bi-graph-up me-1"></i>New Residents — Last 12 Months</span>
+        <div class="ch">
+          <span><i class="bi bi-graph-up text-primary me-1"></i>New Residents — Last 12 Months</span>
         </div>
         <div class="cb">
           <canvas id="popTrendChart" style="max-height:160px;"></canvas>
@@ -437,34 +433,34 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
     <div class="col-md-5">
       <div class="row g-2 h-100">
         <div class="col-6">
-          <div class="pcard" style="background:#5b21b6;">
+          <div class="pcard" style="background:#ede9fe;">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#6d28d9;"><i class="bi bi-person-wheelchair" style="color:#fff;"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['total_pwd']) ?></div><div class="pcard-lbl">PWD</div></div>
+              <div class="pcard-icon" style="background:#c4b5fd;"><i class="bi bi-person-wheelchair" style="color:#5b21b6;"></i></div>
+              <div><div class="pcard-val" style="color:#4c1d95;" id="stat_total_pwd"><?= number_format($stats['total_pwd']) ?></div><div class="pcard-lbl">PWD</div></div>
             </div>
           </div>
         </div>
         <div class="col-6">
-          <div class="pcard" style="background:#9a3412;">
+          <div class="pcard" style="background:#ffedd5;">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#c2410c;"><i class="bi bi-person-fill" style="color:#fff;"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['total_senior']) ?></div><div class="pcard-lbl">Senior Citizens</div></div>
+              <div class="pcard-icon" style="background:#fdba74;"><i class="bi bi-person-fill" style="color:#9a3412;"></i></div>
+              <div><div class="pcard-val" style="color:#7c2d12;" id="stat_total_senior"><?= number_format($stats['total_senior']) ?></div><div class="pcard-lbl">Senior Citizens</div></div>
             </div>
           </div>
         </div>
         <div class="col-6">
-          <div class="pcard" style="background:#9d174d;">
+          <div class="pcard" style="background:#fce7f3;">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#be185d;"><i class="bi bi-person-heart" style="color:#fff;"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['total_solo']) ?></div><div class="pcard-lbl">Solo Parents</div></div>
+              <div class="pcard-icon" style="background:#f9a8d4;"><i class="bi bi-person-heart" style="color:#9d174d;"></i></div>
+              <div><div class="pcard-val" style="color:#831843;" id="stat_total_solo"><?= number_format($stats['total_solo']) ?></div><div class="pcard-lbl">Solo Parents</div></div>
             </div>
           </div>
         </div>
         <div class="col-6">
-          <div class="pcard" style="background:#065f46;">
+          <div class="pcard" style="background:#d1fae5;">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#047857;"><i class="bi bi-heart-fill" style="color:#fff;"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['total_4ps']) ?></div><div class="pcard-lbl">4Ps Beneficiaries</div></div>
+              <div class="pcard-icon" style="background:#6ee7b7;"><i class="bi bi-heart-fill" style="color:#065f46;"></i></div>
+              <div><div class="pcard-val" style="color:#064e3b;" id="stat_total_4ps"><?= number_format($stats['total_4ps']) ?></div><div class="pcard-lbl">4Ps Beneficiaries</div></div>
             </div>
           </div>
         </div>
@@ -539,7 +535,7 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
       <div class="chart-card">
         <div class="ch">
           <span><i class="bi bi-bar-chart-fill me-1"></i>Top 5 Barangays by Population</span>
-          <span class="badge" style="background:#334155;color:#94a3b8;"><?= count($barangays) ?> total barangays</span>
+          <span class="badge bg-secondary"><?= count($barangays) ?> total barangays</span>
         </div>
         <div class="cb p-0">
           <table class="table table-sm mb-0">
@@ -616,42 +612,42 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
   <div class="sec-title"><i class="bi bi-shield-fill-exclamation text-danger"></i>Blotter Status Breakdown</div>
   <div class="row g-2 mb-3">
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#78350f;">
+      <div class="pcard" style="background:#fef3c7;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#92400e;"><i class="bi bi-exclamation-circle-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Open']) ?></div><div class="pcard-lbl">Open</div></div>
+          <div class="pcard-icon" style="background:#fcd34d;"><i class="bi bi-exclamation-circle-fill" style="color:#92400e;"></i></div>
+          <div><div class="pcard-val" style="color:#78350f;" id="stat_bl_open"><?= number_format($blotterStatusCounts['Open']) ?></div><div class="pcard-lbl">Open</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#1e3a5f;">
+      <div class="pcard" style="background:#dbeafe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e;"><i class="bi bi-search" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Under Investigation']) ?></div><div class="pcard-lbl">Under Investigation</div></div>
+          <div class="pcard-icon" style="background:#93c5fd;"><i class="bi bi-search" style="color:#1e40af;"></i></div>
+          <div><div class="pcard-val" style="color:#1e3a8a;" id="stat_bl_investigation"><?= number_format($blotterStatusCounts['Under Investigation']) ?></div><div class="pcard-lbl">Under Investigation</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#14532d;">
+      <div class="pcard" style="background:#dcfce7;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#166534;"><i class="bi bi-check-circle-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Settled']) ?></div><div class="pcard-lbl">Settled</div></div>
+          <div class="pcard-icon" style="background:#86efac;"><i class="bi bi-check-circle-fill" style="color:#166534;"></i></div>
+          <div><div class="pcard-val" style="color:#14532d;" id="stat_bl_settled"><?= number_format($blotterStatusCounts['Settled']) ?></div><div class="pcard-lbl">Settled</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#7f1d1d;">
+      <div class="pcard" style="background:#fee2e2;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#991b1b;"><i class="bi bi-arrow-up-circle-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Escalated']) ?></div><div class="pcard-lbl">Escalated</div></div>
+          <div class="pcard-icon" style="background:#fca5a5;"><i class="bi bi-arrow-up-circle-fill" style="color:#991b1b;"></i></div>
+          <div><div class="pcard-val" style="color:#7f1d1d;" id="stat_bl_escalated"><?= number_format($blotterStatusCounts['Escalated']) ?></div><div class="pcard-lbl">Escalated</div></div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#1e293b;">
+      <div class="pcard" style="background:#f1f5f9;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#334155;"><i class="bi bi-lock-fill" style="color:#fff;"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Closed']) ?></div><div class="pcard-lbl">Closed</div></div>
+          <div class="pcard-icon" style="background:#cbd5e1;"><i class="bi bi-lock-fill" style="color:#475569;"></i></div>
+          <div><div class="pcard-val" style="color:#334155;" id="stat_bl_closed"><?= number_format($blotterStatusCounts['Closed']) ?></div><div class="pcard-lbl">Closed</div></div>
         </div>
       </div>
     </div>
@@ -662,20 +658,20 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
   <div class="row g-2 mb-4">
     <!-- Latest Notices -->
     <div class="col-md-6">
-      <div class="chart-card h-100" style="background:#1e293b;">
-        <div class="ch" style="background:#0f172a;">
-          <span><i class="bi bi-megaphone-fill me-1"></i>Latest LGU Notices</span>
-          <a href="notices.php" class="btn-xs btn text-info p-0" style="font-size:.68rem;">View All</a>
+      <div class="chart-card h-100">
+        <div class="ch">
+          <span><i class="bi bi-megaphone-fill text-warning me-1"></i>Latest LGU Notices</span>
+          <a href="notices.php" class="btn-xs btn btn-outline-secondary p-0 px-2" style="font-size:.68rem;">View All</a>
         </div>
         <div class="cb">
           <?php if (empty($notices)): ?>
             <div style="color:#64748b;font-size:.75rem;text-align:center;padding:16px 0;">No notices available.</div>
           <?php else: ?>
             <?php foreach ($notices as $notice): ?>
-            <div style="border-bottom:1px solid #334155;padding:8px 0;">
-              <div style="font-size:.8rem;font-weight:600;color:#e2e8f0;"><?= htmlspecialchars($notice['title']) ?></div>
+            <div style="border-bottom:1px solid #e2e8f0;padding:8px 0;">
+              <div style="font-size:.8rem;font-weight:600;color:#1e293b;"><?= htmlspecialchars($notice['title']) ?></div>
               <div style="font-size:.65rem;color:#94a3b8;margin:2px 0;"><?= !empty($notice['created_at']) ? date('M d, Y', strtotime($notice['created_at'])) : '' ?></div>
-              <div style="font-size:.72rem;color:#94a3b8;"><?= htmlspecialchars(mb_strimwidth($notice['content'] ?? '', 0, 80, '…')) ?></div>
+              <div style="font-size:.72rem;color:#475569;"><?= htmlspecialchars(mb_strimwidth($notice['content'] ?? '', 0, 80, '…')) ?></div>
             </div>
             <?php endforeach; ?>
           <?php endif; ?>
@@ -684,33 +680,33 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
     </div>
     <!-- Monthly Quick Stats -->
     <div class="col-md-6">
-      <div class="chart-card h-100" style="background:#1e293b;">
-        <div class="ch" style="background:#0f172a;">
-          <span><i class="bi bi-calendar-check-fill me-1"></i>This Month — Quick Stats</span>
-          <a href="reports.php" class="btn-xs btn text-info p-0" style="font-size:.68rem;">Full Report →</a>
+      <div class="chart-card h-100">
+        <div class="ch">
+          <span><i class="bi bi-calendar-check-fill text-primary me-1"></i>This Month — Quick Stats</span>
+          <a href="reports.php" class="btn-xs btn btn-outline-primary p-0 px-2" style="font-size:.68rem;">Full Report →</a>
         </div>
         <div class="cb">
           <div style="display:flex;flex-direction:column;gap:10px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;background:#0f172a;border-radius:10px;padding:10px 14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#dbeafe;border-radius:10px;padding:10px 14px;">
               <div style="display:flex;align-items:center;gap:8px;">
-                <div style="width:32px;height:32px;border-radius:8px;background:#2d5a8e;display:flex;align-items:center;justify-content:center;"><i class="bi bi-person-plus-fill" style="color:#fff;font-size:.9rem;"></i></div>
-                <div style="font-size:.78rem;font-weight:600;color:#e2e8f0;">New Residents</div>
+                <div style="width:32px;height:32px;border-radius:8px;background:#93c5fd;display:flex;align-items:center;justify-content:center;"><i class="bi bi-person-plus-fill" style="color:#1e40af;font-size:.9rem;"></i></div>
+                <div style="font-size:.78rem;font-weight:600;color:#1e3a8a;">New Residents</div>
               </div>
-              <div style="font-size:1.3rem;font-weight:800;color:#38bdf8;"><?= number_format($mnthRes) ?></div>
+              <div style="font-size:1.3rem;font-weight:800;color:#1e40af;" id="stat_month_residents"><?= number_format($mnthRes) ?></div>
             </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;background:#0f172a;border-radius:10px;padding:10px 14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#ede9fe;border-radius:10px;padding:10px 14px;">
               <div style="display:flex;align-items:center;gap:8px;">
-                <div style="width:32px;height:32px;border-radius:8px;background:#5b21b6;display:flex;align-items:center;justify-content:center;"><i class="bi bi-file-earmark-check-fill" style="color:#fff;font-size:.9rem;"></i></div>
-                <div style="font-size:.78rem;font-weight:600;color:#e2e8f0;">Certificates</div>
+                <div style="width:32px;height:32px;border-radius:8px;background:#c4b5fd;display:flex;align-items:center;justify-content:center;"><i class="bi bi-file-earmark-check-fill" style="color:#5b21b6;font-size:.9rem;"></i></div>
+                <div style="font-size:.78rem;font-weight:600;color:#4c1d95;">Certificates</div>
               </div>
-              <div style="font-size:1.3rem;font-weight:800;color:#a78bfa;"><?= number_format($mnthCert) ?></div>
+              <div style="font-size:1.3rem;font-weight:800;color:#5b21b6;" id="stat_month_certs"><?= number_format($mnthCert) ?></div>
             </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;background:#0f172a;border-radius:10px;padding:10px 14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#fee2e2;border-radius:10px;padding:10px 14px;">
               <div style="display:flex;align-items:center;gap:8px;">
-                <div style="width:32px;height:32px;border-radius:8px;background:#991b1b;display:flex;align-items:center;justify-content:center;"><i class="bi bi-shield-exclamation" style="color:#fff;font-size:.9rem;"></i></div>
-                <div style="font-size:.78rem;font-weight:600;color:#e2e8f0;">Blotter Cases</div>
+                <div style="width:32px;height:32px;border-radius:8px;background:#fca5a5;display:flex;align-items:center;justify-content:center;"><i class="bi bi-shield-exclamation" style="color:#991b1b;font-size:.9rem;"></i></div>
+                <div style="font-size:.78rem;font-weight:600;color:#7f1d1d;">Blotter Cases</div>
               </div>
-              <div style="font-size:1.3rem;font-weight:800;color:#f87171;"><?= number_format($mnthBlotter) ?></div>
+              <div style="font-size:1.3rem;font-weight:800;color:#991b1b;" id="stat_month_blotter"><?= number_format($mnthBlotter) ?></div>
             </div>
           </div>
           <div class="mt-3 text-center">
@@ -731,7 +727,7 @@ html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
 document.addEventListener('DOMContentLoaded', function() {
 
 // ── Population Trend Chart (mini, dark) ───────────────────
-new Chart(document.getElementById('popTrendChart'), {
+var _popChart = new Chart(document.getElementById('popTrendChart'), {
   type: 'line',
   data: {
     labels: <?= json_encode($popLabels) ?>,
@@ -755,16 +751,111 @@ new Chart(document.getElementById('popTrendChart'), {
     responsive: true,
     plugins: { legend: { display: false } },
     scales: {
-      x: { ticks: { color: '#94a3b8', font: { size: 9 } }, grid: { color: '#1e293b' } },
-      y: { ticks: { color: '#94a3b8', font: { size: 9 } }, grid: { color: '#1e293b' }, beginAtZero: true }
+      x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#f1f5f9' } },
+      y: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#f1f5f9' }, beginAtZero: true }
     }
   }
 });
+// Expose chart instance to the AJAX barangay filter
+if (window._dashSetPopChart) window._dashSetPopChart(_popChart);
 
 // ── toggleSidebar ─────────────────────────────────────────
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('show');
 }
+
+// ── Barangay filter: AJAX update — no page reload, banner stays fixed ─────
+(function() {
+    var sel = document.getElementById('brgySelect');
+    if (!sel) return;
+
+    // Helper: format number with commas
+    function fmt(n) {
+        return Number(n || 0).toLocaleString('en-PH');
+    }
+
+    // Map stat IDs to their data keys
+    var statMap = {
+        stat_total_residents  : function(s){ return fmt(s.total_residents); },
+        stat_total_households : function(s){ return fmt(s.total_households); },
+        stat_total_blotter    : function(s){ return fmt(s.total_blotter); },
+        stat_total_certs      : function(s){ return fmt(s.total_certs); },
+        stat_res_active       : function(s){ return fmt(s.res_active); },
+        stat_res_inactive     : function(s){ return fmt(s.res_inactive); },
+        stat_res_transferred  : function(s){ return fmt(s.res_transferred); },
+        stat_res_deceased     : function(s){ return fmt(s.res_deceased); },
+        stat_total_transferred: function(s){ return fmt(s.total_transferred); },
+        stat_outside_transfer : function(s){ return fmt(s.outside_transfer_total); },
+        stat_local_transfer   : function(s){ return fmt(s.local_transfer_total); },
+        stat_brgy_affected    : function(s){ return fmt(s.barangays_affected); },
+        stat_total_pwd        : function(s){ return fmt(s.total_pwd); },
+        stat_total_senior     : function(s){ return fmt(s.total_senior); },
+        stat_total_solo       : function(s){ return fmt(s.total_solo); },
+        stat_total_4ps        : function(s){ return fmt(s.total_4ps); },
+        stat_bl_open          : function(s){ return fmt(s.blotter_status['Open']); },
+        stat_bl_investigation : function(s){ return fmt(s.blotter_status['Under Investigation']); },
+        stat_bl_settled       : function(s){ return fmt(s.blotter_status['Settled']); },
+        stat_bl_escalated     : function(s){ return fmt(s.blotter_status['Escalated']); },
+        stat_bl_closed        : function(s){ return fmt(s.blotter_status['Closed']); },
+        stat_month_residents  : function(s){ return fmt(s.month_residents); },
+        stat_month_certs      : function(s){ return fmt(s.month_certs); },
+        stat_month_blotter    : function(s){ return fmt(s.month_blotter); },
+    };
+
+    var popChart = null; // Chart.js instance reference (set after DOMContentLoaded)
+
+    function loadStats(brgyId) {
+        var url = '<?= BASE_URL ?>/ajax/get_dashboard_stats.php' + (brgyId ? '?barangay_id=' + brgyId : '');
+
+        // Show a subtle loading indicator on the select
+        sel.disabled = true;
+        sel.style.opacity = '0.6';
+
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) return;
+                var s = data.stats;
+
+                // Update all stat cards
+                Object.keys(statMap).forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el) el.textContent = statMap[id](s);
+                });
+
+                // Update population trend chart
+                if (popChart && s.pop_trend) {
+                    popChart.data.labels   = s.pop_trend.labels;
+                    popChart.data.datasets[0].data = s.pop_trend.values;
+                    popChart.update();
+                }
+
+                // Update download links
+                var excelLink = document.getElementById('excelLink');
+                var pdfLink   = document.getElementById('pdfLink');
+                if (excelLink) excelLink.href = 'export_dashboard_records.php?format=excel' + (brgyId ? '&barangay_id=' + brgyId : '');
+                if (pdfLink)   pdfLink.href   = 'export_dashboard_records.php?format=pdf'   + (brgyId ? '&barangay_id=' + brgyId : '');
+
+                // Update address bar without reloading
+                var url2 = new URL(window.location.href);
+                if (brgyId) url2.searchParams.set('barangay_id', brgyId);
+                else        url2.searchParams.delete('barangay_id');
+                history.replaceState({ barangay_id: brgyId }, '', url2.toString());
+            })
+            .catch(function(e) { console.warn('Dashboard stats fetch failed:', e); })
+            .finally(function() {
+                sel.disabled = false;
+                sel.style.opacity = '';
+            });
+    }
+
+    sel.addEventListener('change', function() {
+        loadStats(this.value);
+    });
+
+    // Expose chart ref so loadStats can update it after Chart.js initialises
+    window._dashSetPopChart = function(chart) { popChart = chart; };
+})();
 
 // ── Real-time banner clock ─────────────────────────────────
 (function() {

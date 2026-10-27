@@ -24,16 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add' || $action === 'edit') {
-        // Official fields — build full_name from parts if adding
-        if ($action === 'add') {
-            $firstName = sanitize($_POST['first_name'] ?? '');
-            $middleName= sanitize($_POST['middle_name'] ?? '');
-            $lastName  = sanitize($_POST['last_name'] ?? '');
-            $suffix    = sanitize($_POST['suffix'] ?? '');
-            $fullName  = trim("$lastName, $firstName" . ($middleName ? " $middleName" : '') . ($suffix ? " $suffix" : ''));
-        } else {
-            $fullName  = sanitize($_POST['full_name']);
-        }
+        // Official fields — build full_name from parts (both add and edit now use split fields)
+        $firstName = sanitize($_POST['first_name'] ?? '');
+        $middleName= sanitize($_POST['middle_name'] ?? '');
+        $lastName  = sanitize($_POST['last_name'] ?? '');
+        $suffix    = sanitize($_POST['suffix'] ?? '');
+        $fullName  = trim("$lastName, $firstName" . ($middleName ? " $middleName" : '') . ($suffix ? " $suffix" : ''));
         $position  = sanitize($_POST['position']);
         $termStart = $_POST['term_start'];
         $termEnd   = $_POST['term_end'];
@@ -158,22 +154,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // ── "Register as Resident" was clicked on the Edit form ──────
             if (!empty($_POST['register_as_resident'])) {
-                // Parse full_name (stored as "Last, First Middle Suffix") back into parts
-                // so add_resident.php can pre-fill correctly.
-                $parts = array_map('trim', explode(',', $fullName, 2));
-                $parsedLast  = $parts[0] ?? '';
-                $remainder   = $parts[1] ?? $fullName;
-                $remParts    = explode(' ', trim($remainder), 3);
-                $parsedFirst = $remParts[0] ?? '';
-                $parsedMid   = isset($remParts[1]) && !in_array($remParts[1], ['Jr.','Sr.','II','III','IV','V']) ? $remParts[1] : '';
-                $parsedSuffix= isset($remParts[2]) ? $remParts[2] : (isset($remParts[1]) && in_array($remParts[1], ['Jr.','Sr.','II','III','IV','V']) ? $remParts[1] : '');
-
+                // Name parts now come directly from the split fields
                 $_SESSION['prefill_from_official'] = [
                     'official_id'  => $id,
-                    'first_name'   => $parsedFirst,
-                    'middle_name'  => $parsedMid,
-                    'last_name'    => $parsedLast,
-                    'suffix'       => $parsedSuffix,
+                    'first_name'   => $firstName,
+                    'middle_name'  => $middleName,
+                    'last_name'    => $lastName,
+                    'suffix'       => $suffix,
                     'full_name'    => $fullName,
                     'position'     => $position,
                     'birthdate'    => '',
@@ -187,7 +174,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect(BASE_URL . '/barangay_admin/add_resident.php');
             }
 
-            flash('off', 'Official updated.', 'success');
+            // ── Auto-archive when set to Inactive ─────────────────────
+            if ($status === 'inactive') {
+                // Only create archive entry if not already archived
+                $alreadyArch = $db->prepare("SELECT id FROM archives WHERE table_name='officials' AND record_id=?");
+                $alreadyArch->execute([$id]);
+                if (!$alreadyArch->fetch()) {
+                    $archRow = $db->prepare("SELECT * FROM officials WHERE id=?");
+                    $archRow->execute([$id]);
+                    $archData = $archRow->fetch();
+                    if ($archData) {
+                        $archData['archive_reason'] = 'Term ended';
+                        $db->prepare("INSERT INTO archives (table_name,record_id,data_json,archived_by) VALUES ('officials',?,?,?)")
+                           ->execute([$id, json_encode($archData), $u['id']]);
+                        logActivity($u['id'], 'ARCHIVE_OFFICIAL', 'Officials', "Auto-archived (set inactive): $fullName");
+                    }
+                }
+                flash('off', "Official <strong>$fullName</strong> set to inactive and archived.", 'info');
+            } else {
+                flash('off', 'Official updated.', 'success');
+            }
         }
         redirect(BASE_URL . '/barangay_admin/officials.php');
     }
@@ -239,8 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->prepare("UPDATE officials SET status='inactive' WHERE id=?")->execute([$off['id']]);
             $count++;
         }
-        logActivity($u['id'], 'AUTO_ARCHIVE_OFFICIALS', 'Officials', "Auto-archived $count expired official(s)");
-        flash('off', "$count expired official(s) auto-archived.", 'info');
+        logActivity($u['id'], 'AUTO_ARCHIVE_OFFICIALS', 'Officials', "Auto-archived $count term-ended official(s)");
+        flash('off', "$count term-ended official(s) auto-archived.", 'info');
         redirect(BASE_URL . '/barangay_admin/officials.php');
     }
 }
@@ -250,7 +256,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // due to a resident transfer. They must remain visible so the barangay admin can
 // manually archive them from the Officials page.
 
-$officials = $db->prepare("SELECT * FROM officials WHERE barangay_id=? ORDER BY FIELD(status,'active','inactive'), position");
+$officials = $db->prepare(
+    "SELECT * FROM officials
+     WHERE barangay_id=?
+       AND id NOT IN (SELECT record_id FROM archives WHERE table_name='officials')
+     ORDER BY FIELD(status,'active','inactive'), position"
+);
 $officials->execute([$bid]);
 $allOfficials = $officials->fetchAll();
 
@@ -263,8 +274,12 @@ $currentPage = min($currentPage, $totalPages);
 $listOffset  = ($currentPage - 1) * $perPage;   // renamed: avoid shadowing by pagination.php
 $officials   = array_slice($allOfficials, $listOffset, $perPage);
 
-// Count active officials with expired terms
-$expiredStmt = $db->prepare("SELECT COUNT(*) FROM officials WHERE barangay_id=? AND status='active' AND term_end < CURDATE()");
+// Count active officials with term ended (not yet archived)
+$expiredStmt = $db->prepare(
+    "SELECT COUNT(*) FROM officials
+     WHERE barangay_id=? AND status='active' AND term_end < CURDATE()
+       AND id NOT IN (SELECT record_id FROM archives WHERE table_name='officials')"
+);
 $expiredStmt->execute([$bid]);
 $expiredCount = (int)$expiredStmt->fetchColumn();
 
@@ -281,6 +296,10 @@ $transferredIds = array_map('intval', $transferredIds);
 
 $flash = getFlash('off');
 $positions = ['Barangay Captain','Barangay Kagawad','SK Chairperson','SK Kagawad','Barangay Secretary','Barangay Treasurer','BPSO','Lupon Member'];
+
+// Fetch official term years from system settings (default 3)
+$termYearsRow = $db->query("SELECT setting_val FROM system_settings WHERE setting_key='official_term_years'")->fetchColumn();
+$officialTermYears = $termYearsRow ? (int)$termYearsRow : 3;
 ?>
 
 <?php
@@ -399,11 +418,11 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
             <div class="d-flex gap-2 align-items-center flex-wrap">
                 <span class="text-muted small"><?= number_format($totalRows) ?> official<?= $totalRows !== 1 ? 's' : '' ?></span>
                 <?php if ($expiredCount > 0): ?>
-                <form method="POST" class="d-inline ms-1" onsubmit="return confirm('Auto-archive <?= $expiredCount ?> expired official(s) whose term has already ended?')">
+                <form method="POST" class="d-inline ms-1" onsubmit="return confirm('Auto-archive <?= $expiredCount ?> term-ended official(s) whose term has already ended?')">
                     <input type="hidden" name="action" value="auto_archive_expired">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
                     <button type="submit" class="btn btn-sm btn-warning fw-semibold">
-                        <i class="bi bi-clock-history me-1"></i>Archive <?= $expiredCount ?> Expired
+                        <i class="bi bi-clock-history me-1"></i>Archive <?= $expiredCount ?> Term Ended
                     </button>
                 </form>
                 <?php endif; ?>
@@ -444,7 +463,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                     </td></tr>
                 <?php else: ?>
                     <?php foreach ($officials as $i => $off):
-                        $isExpired    = $off['status'] === 'active' && $off['term_end'] < date('Y-m-d');
+                        $isTermEnded  = $off['status'] === 'active' && $off['term_end'] < date('Y-m-d');
                         $isTransferred = in_array((int)$off['id'], $transferredIds, true);
                     ?>
                     <tr style="border-bottom:1px solid #e8f4fb;transition:background 0.15s;<?= $isTransferred ? 'background:#f8f9fa;opacity:0.7;' : ($off['status']==='inactive' ? 'opacity:0.55;' : '') ?>"
@@ -472,11 +491,11 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                         </td>
                         <td class="py-3" style="border:none;font-size:0.82rem;color:<?= $isTransferred ? '#9ca3af' : '#2a5070' ?>;">
                             <?= date('M d, Y', strtotime($off['term_start'])) ?> —
-                            <span <?= $isExpired ? 'style="color:#dc2626;font-weight:600;"' : '' ?>>
+                            <span <?= $isTermEnded ? 'style="color:#dc2626;font-weight:600;"' : '' ?>>
                                 <?= date('M d, Y', strtotime($off['term_end'])) ?>
                             </span>
-                            <?php if ($isExpired): ?>
-                                <span class="badge bg-danger ms-1" style="font-size:0.65rem;">Expired</span>
+                            <?php if ($isTermEnded): ?>
+                                <span class="badge ms-1" style="background:#fee2e2;color:#991b1b;font-size:0.65rem;">Term Ended</span>
                             <?php endif; ?>
                         </td>
                         <td class="py-3" style="border:none;font-size:0.82rem;color:<?= $isTransferred ? '#9ca3af' : '#2a5070' ?>;">
@@ -486,6 +505,10 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                             <?php if ($isTransferred): ?>
                                 <span style="background:#fee2e2;color:#991b1b;font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid #fca5a5;">
                                     <i class="bi bi-arrow-right-circle-fill me-1"></i>Transferred
+                                </span>
+                            <?php elseif ($isTermEnded): ?>
+                                <span style="background:#fee2e2;color:#991b1b;font-size:0.72rem;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid #fca5a5;">
+                                    <i class="bi bi-calendar-x-fill me-1"></i>Term Ended
                                 </span>
                             <?php elseif ($off['status'] === 'active'): ?>
                                 <span style="background:#e0f2fb;color:#0d3a5c;font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:20px;">Active</span>
@@ -504,7 +527,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <?php if ($off['status'] === 'active' || $isTransferred): ?>
-                                <button class="btn btn-xs <?= $isTransferred ? 'btn-outline-secondary' : 'btn-outline-warning' ?>"
+                                <button class="btn btn-xs <?= $isTransferred ? 'btn-outline-secondary' : ($isTermEnded ? 'btn-outline-danger' : 'btn-outline-warning') ?>"
                                         onclick="openArchiveOfficialModal(<?= $off['id'] ?>, '<?= htmlspecialchars(addslashes($off['full_name'])) ?>', '<?= $off['term_end'] ?>')"
                                         title="Archive">
                                     <i class="bi bi-archive"></i>
@@ -613,7 +636,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                                 </div>
                                 <div class="off-section-body">
 
-                                    <!-- Name row (split on add, single on edit) -->
+                                    <!-- Name row — same split fields for both add and edit -->
                                     <div id="addNameRow" class="row g-3 mb-3">
                                         <div class="col-md-3">
                                             <label class="off-field-label">First Name <span class="req">*</span></label>
@@ -638,16 +661,9 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                                         </div>
                                     </div>
 
-                                    <!-- ── Resident status indicator (add mode only) ── -->
+                                    <!-- ── Resident status indicator ── -->
                                     <div id="offResidentStatusBar" style="display:none;margin-bottom:14px;">
                                         <!-- content injected by JS -->
-                                    </div>
-
-                                    <div id="editNameRow" class="row g-3 mb-3" style="display:none;">
-                                        <div class="col-12">
-                                            <label class="off-field-label">Full Name <span class="req">*</span></label>
-                                            <input type="text" id="offNameEdit" class="form-control" placeholder="Last Name, First Name Middle Name">
-                                        </div>
                                     </div>
 
                                     <!-- Row 2: Position · Term Start · Term End · Status (4 equal cols) -->
@@ -832,7 +848,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
             </div>
             <div class="voff-row" id="vOffExpiredRow" style="display:none;">
                 <div class="voff-label"><i class="bi bi-exclamation-triangle-fill me-2" style="color:#dc2626;"></i>Term Status</div>
-                <div class="voff-val"><span style="background:#fee2e2;color:#dc2626;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:20px;">Expired</span></div>
+                <div class="voff-val"><span style="background:#fee2e2;color:#991b1b;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:20px;border:1px solid #fca5a5;">Term Ended</span></div>
             </div>
         </div>
 
@@ -932,6 +948,30 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+/* ══ System setting: official term years ══ */
+const OFFICIAL_TERM_YEARS = <?= (int)$officialTermYears ?>;
+
+/* ══ Auto-calculate Term End from Term Start ══ */
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('offTermStart').addEventListener('change', function () {
+        const startVal = this.value;
+        if (!startVal) return;
+        // Add OFFICIAL_TERM_YEARS years to get term end
+        const d = new Date(startVal);
+        d.setFullYear(d.getFullYear() + OFFICIAL_TERM_YEARS);
+        // Format as YYYY-MM-DD
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const termEndVal = `${y}-${m}-${day}`;
+        // Set using lguSetDate so the visible text field also updates
+        if (typeof lguSetDate === 'function') {
+            lguSetDate('offTermEnd', termEndVal);
+        } else {
+            document.getElementById('offTermEnd').value = termEndVal;
+        }
+    });
+});
 /* ══ Age calc ══ */
 function offCalcAge(bdate) {
     if (!bdate) { document.getElementById('offAge').value = ''; return; }
@@ -1025,16 +1065,13 @@ function resetOfficialForm() {
     // Contact validation reset
     document.getElementById('offContact').classList.remove('is-invalid', 'is-valid');
     document.getElementById('offContactErr').style.display = 'none';
-    // Name rows
-    document.getElementById('addNameRow').style.display = '';
-    document.getElementById('editNameRow').style.display = 'none';
+    // Name fields always visible
+    document.getElementById('offFirstName').required = true;
+    document.getElementById('offLastName').required  = true;
     // Resident section — show it; required state is managed by offSetResidentStatus()
     document.getElementById('residentSection').style.display = '';
     document.getElementById('offBirthdate').required = false;  // controlled by resident-check
     document.getElementById('offGender').required    = false;  // controlled by resident-check
-    document.getElementById('offNameEdit').required  = false;
-    document.getElementById('offFirstName').required = true;
-    document.getElementById('offLastName').required  = true;
     // Reset resident-check state and status bar
     _offResCheckLast = '';   // allow re-check if same name is typed again
     offSetResidentStatus('idle');
@@ -1047,17 +1084,48 @@ function editOfficial(o) {
     document.getElementById('offFullName').value = o.full_name;
     document.getElementById('offModalTitle').textContent = 'Edit Official';
     document.getElementById('offModalSub').textContent = 'Update the details of the barangay official.';
-    // Name rows
-    document.getElementById('addNameRow').style.display = 'none';
-    document.getElementById('editNameRow').style.display = '';
-    document.getElementById('offNameEdit').value = o.full_name;
+
+    // Parse stored full_name ("Last, First Middle Suffix") into separate fields
+    const nameParts  = o.full_name.split(',');
+    const parsedLast = (nameParts[0] || '').trim();
+    const remainder  = (nameParts[1] || '').trim();
+    // Split remainder into words; detect known suffixes
+    const suffixes   = ['Jr.','Sr.','II','III','IV','V'];
+    const remWords   = remainder.split(' ').filter(w => w.length > 0);
+    let parsedFirst  = '';
+    let parsedMid    = '';
+    let parsedSuffix = '';
+    if (remWords.length >= 1) parsedFirst = remWords[0];
+    if (remWords.length >= 2) {
+        // Last word might be suffix
+        const lastWord = remWords[remWords.length - 1];
+        if (suffixes.includes(lastWord) && remWords.length >= 3) {
+            parsedSuffix = lastWord;
+            parsedMid = remWords.slice(1, remWords.length - 1).join(' ');
+        } else if (suffixes.includes(lastWord) && remWords.length === 2) {
+            parsedSuffix = lastWord;
+        } else {
+            parsedMid = remWords.slice(1).join(' ');
+        }
+    }
+
+    document.getElementById('offFirstName').value  = parsedFirst;
+    document.getElementById('offMiddleName').value = parsedMid;
+    document.getElementById('offLastName').value   = parsedLast;
+    // Set suffix dropdown
+    const suffixSel = document.getElementById('offSuffix');
+    suffixSel.value = parsedSuffix;
+    if (!suffixSel.value) suffixSel.selectedIndex = 0; // fallback to "None"
+
+    // Name fields always required
+    document.getElementById('offFirstName').required = true;
+    document.getElementById('offLastName').required  = true;
+
     // Resident section hidden on edit (not needed — redirect handles it)
     document.getElementById('residentSection').style.display = 'none';
     document.getElementById('offBirthdate').required = false;
     document.getElementById('offGender').required = false;
-    document.getElementById('offFirstName').required = false;
-    document.getElementById('offLastName').required = false;
-    document.getElementById('offNameEdit').required = true;
+
     // Fields
     document.getElementById('offPosition').value = o.position;
     // Use lguSetDate so the visible typeable text field also updates
@@ -1084,14 +1152,8 @@ function editOfficial(o) {
     document.getElementById('offRegisterFlag').value = '0';
 
     // ── Check if this official is already a resident ──────────────────
-    // Parse full_name ("Last, First Middle") to extract lookup keys
     const bar         = document.getElementById('offResidentStatusBar');
     const registerBtn = document.getElementById('offRegisterBtn');
-    const nameParts   = o.full_name.split(',');
-    const parsedLast  = (nameParts[0] || '').trim();
-    const remainder   = (nameParts[1] || o.full_name).trim().split(' ');
-    const parsedFirst = remainder[0] || '';
-    const parsedMid   = remainder[1] || '';
 
     if (parsedFirst.length >= 2 && parsedLast.length >= 2) {
         bar.style.display = '';
@@ -1159,14 +1221,14 @@ function editOfficial(o) {
     new bootstrap.Modal(document.getElementById('officialModal')).show();
 }
 
-// NOTE: form.submit() called by submitOfficialForm() is programmatic and does NOT
-// fire the 'submit' event, so full_name sync is handled inside submitOfficialForm() directly.
-// The listener below is kept only as a safety net for any direct form.submit() calls.
+// NOTE: full_name is synced inside submitOfficialForm() before submitting.
+// The listener below is kept only as a safety net.
 document.getElementById('officialForm').addEventListener('submit', function() {
-    const action = document.getElementById('offAction').value;
-    if (action === 'edit') {
-        document.getElementById('offFullName').value = document.getElementById('offNameEdit').value.trim();
-    }
+    const fn  = (document.getElementById('offFirstName').value  || '').trim();
+    const mn  = (document.getElementById('offMiddleName').value || '').trim();
+    const ln  = (document.getElementById('offLastName').value   || '').trim();
+    const sfx = (document.getElementById('offSuffix').value     || '').trim();
+    document.getElementById('offFullName').value = (ln + ', ' + fn + (mn ? ' ' + mn : '') + (sfx ? ' ' + sfx : '')).trim();
 });
 
 /**
@@ -1177,11 +1239,12 @@ document.getElementById('officialForm').addEventListener('submit', function() {
  * @param {string}      registerFlag - '1' = Register as Resident, '0' = Save only
  */
 function submitOfficialForm(btn, registerFlag) {
-    // Sync full_name on edit
-    const action = document.getElementById('offAction').value;
-    if (action === 'edit') {
-        document.getElementById('offFullName').value = document.getElementById('offNameEdit').value.trim();
-    }
+    // Sync full_name from split name fields (both add and edit)
+    const fn  = (document.getElementById('offFirstName').value  || '').trim();
+    const mn  = (document.getElementById('offMiddleName').value || '').trim();
+    const ln  = (document.getElementById('offLastName').value   || '').trim();
+    const sfx = (document.getElementById('offSuffix').value     || '').trim();
+    document.getElementById('offFullName').value = (ln + ', ' + fn + (mn ? ' ' + mn : '') + (sfx ? ' ' + sfx : '')).trim();
 
     // Set the register flag
     document.getElementById('offRegisterFlag').value = registerFlag;

@@ -59,14 +59,14 @@ $query .= " ORDER BY a.archived_at DESC";
 
 // Pagination
 $perPage     = 10;
-$currentPage = max(1, (int)($_GET['page'] ?? 1));
+$archivePage = max(1, (int)($_GET['page'] ?? 1));
 $countQuery  = "SELECT COUNT(*) FROM archives a WHERE a.table_name IN ('$typeList')";
 if ($search)                                          $countQuery .= " AND (a.table_name LIKE '%$search%' OR a.data_json LIKE '%$search%')";
 if ($typeFilter && in_array($typeFilter, $superAdminTypes)) $countQuery .= " AND a.table_name = '$typeFilter'";
 $totalRows   = (int)$db->query($countQuery)->fetchColumn();
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
-$currentPage = min($currentPage, $totalPages);
-$offset      = ($currentPage - 1) * $perPage;
+$archivePage = min($archivePage, $totalPages);
+$offset      = ($archivePage - 1) * $perPage;
 
 $archives = $db->query($query . " LIMIT $perPage OFFSET $offset")->fetchAll();
 
@@ -91,16 +91,79 @@ $pageSubtitle = 'Inactive or removed records.';
 <html lang="en">
 <head>
     <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
-    <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        .archive-pagination {
+            display: flex; justify-content: center;
+            padding: 12px; background: #f1f6fb;
+            border-top: 1px solid #cbd5e1;
+        }
+        .pagination .page-link {
+            border-radius: 6px !important; margin: 0 1px; min-width: 30px;
+            text-align: center; font-size: 0.78rem; padding: 3px 8px;
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
+
+<form method="POST" id="archiveRestoreForm">
+    <?= csrfField() ?>
+    <input type="hidden" name="action" value="restore">
+    <input type="hidden" name="archive_id" id="restoreArchiveId">
+</form>
+
+<div class="modal fade" id="restoreArchiveModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius:16px;overflow:hidden;">
+            <div class="d-flex">
+                <div class="d-flex flex-column align-items-center justify-content-center px-4 py-5"
+                     style="background:linear-gradient(160deg,#065f46 0%,#059669 100%);min-width:220px;width:220px;align-self:stretch;flex-shrink:0;">
+                    <div style="width:80px;height:80px;background:rgba(255,255,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,0.3);">
+                        <i class="bi bi-arrow-counterclockwise text-white" style="font-size:2.2rem;"></i>
+                    </div>
+                    <h5 class="fw-bold mt-3 mb-1 text-white text-center">Restore Record</h5>
+                    <p class="text-white-50 small text-center mb-0">This action is reversible</p>
+                </div>
+                <div class="flex-fill d-flex flex-column justify-content-between p-4">
+                    <div>
+                        <p class="text-muted small mb-1">You are about to restore:</p>
+                        <p class="fw-bold fs-6 mb-3" id="restoreRecordName" style="color:#065f46;"></p>
+                        <div class="alert alert-success py-2 small mb-0">
+                            <i class="bi bi-check-circle me-1"></i>
+                            This record will be restored to its original state and become active again.
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-4">
+                        <button type="button" class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn fw-semibold flex-fill" style="background:#059669;color:#fff;"
+                                onclick="submitRestore()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Confirm Restore
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+function openRestoreModal(archiveId, label) {
+    document.getElementById('restoreArchiveId').value = archiveId;
+    document.getElementById('restoreRecordName').textContent = label;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('restoreArchiveModal')).show();
+}
+
+function submitRestore() {
+    bootstrap.Modal.getInstance(document.getElementById('restoreArchiveModal')).hide();
+    document.getElementById('archiveRestoreForm').submit();
+}
+</script>
 
 <div class="main-content">
 
@@ -109,8 +172,6 @@ $pageSubtitle = 'Inactive or removed records.';
             <?= $flash['message'] ?> <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
-
-    
 
     <!-- Filters -->
     <div style="background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.06);border:1px solid #e0f0e4;padding:16px 20px;margin-bottom:16px;">
@@ -164,6 +225,15 @@ $pageSubtitle = 'Inactive or removed records.';
                 <tbody>
                 <?php foreach ($archives as $a):
                     $data  = json_decode($a['data_json'], true) ?? [];
+                    if ($a['table_name'] === 'users') {
+                        $restoreLabel = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
+                    } elseif ($a['table_name'] === 'barangays') {
+                        $restoreLabel = $data['barangay_name'] ?? '—';
+                    } elseif ($a['table_name'] === 'notices') {
+                        $restoreLabel = $data['title'] ?? '—';
+                    } else {
+                        $restoreLabel = $data['subject'] ?? ($data['title'] ?? 'Record #' . ($data['id'] ?? ''));
+                    }
                     $typeColors = [
                         'users'     => ['bg'=>'rgba(26,79,122,0.1)',   'color'=>'#1a4f7a'],
                         'barangays' => ['bg'=>'rgba(5,150,105,0.1)',   'color'=>'#065f46'],
@@ -261,13 +331,12 @@ $pageSubtitle = 'Inactive or removed records.';
 
                         <!-- Actions -->
                         <td class="pe-4 py-3" style="border:none;">
-                            <div class="d-flex gap-2">
-                                <button type="button" class="btn btn-sm"
-                                        style="font-size:0.78rem;border-radius:8px;padding:4px 12px;background:#e0f2fb;color:#0d3a5c;border:1px solid #b8e8f0;"
-                                        onclick="openRestoreModal(<?= $a['id'] ?>, '<?= htmlspecialchars(addslashes($a['table_name'])) ?>', <?= htmlspecialchars(json_encode($data)) ?>)">
-                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
-                                </button>
-                            </div>
+                            <button type="button" class="btn btn-sm"
+                                    onclick="openRestoreModal(<?= (int)$a['id'] ?>, this.dataset.label)"
+                                    data-label="<?= htmlspecialchars($restoreLabel, ENT_QUOTES, 'UTF-8') ?>"
+                                    style="font-size:0.78rem;border-radius:8px;padding:4px 12px;background:#e0f2fb;color:#0d3a5c;border:1px solid #b8e8f0;">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                            </button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -275,65 +344,33 @@ $pageSubtitle = 'Inactive or removed records.';
             </table>
         </div>
         <?php endif; ?>
-    </div>
 
-    <!-- Pagination -->
-    <?php if ($totalPages > 1): ?>
-    <?php
-        $queryParams = $_GET; unset($queryParams['page']);
-        $baseQuery   = http_build_query($queryParams);
-        $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
-        $window = 2;
-    ?>
-    <?php $page = $currentPage; $totalCount = $totalRows; $offset = ($page-1)*$perPage; $paginationBase = $baseUrl; $paginationLabel = 'archived record'; include __DIR__ . '/../includes/pagination.php'; ?>
-    <?php endif; ?>
-</div>
-
-<!-- Hidden Forms -->
-<form method="POST" id="archiveRestoreForm">
-    <input type="hidden" name="action" value="restore">
-    <?= csrfField() ?>
-    <input type="hidden" name="archive_id" id="restoreArchiveId">
-</form>
-
-<!-- ── Restore Modal ──────────────────────────────────────── -->
-<div class="modal fade" id="restoreArchiveModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius:16px; overflow:hidden;">
-            <div class="d-flex">
-                <!-- LEFT -->
-                <div class="d-flex flex-column align-items-center justify-content-center px-4 py-5"
-                     style="background:linear-gradient(160deg,#065f46 0%,#059669 100%); min-width:220px; width:220px; align-self:stretch; flex-shrink:0;">
-                    <div style="width:80px;height:80px;background:rgba(255,255,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,0.3);">
-                        <i class="bi bi-arrow-counterclockwise text-white" style="font-size:2.2rem;"></i>
-                    </div>
-                    <h5 class="fw-bold mt-3 mb-1 text-white text-center">Restore Record</h5>
-                    <p class="text-white-50 small text-center mb-0">This action is reversible</p>
-                </div>
-                <!-- RIGHT -->
-                <div class="flex-fill d-flex flex-column justify-content-between p-4">
-                    <div>
-                        <p class="text-muted small mb-1">You are about to restore:</p>
-                        <p class="fw-bold fs-6 mb-3" id="restoreRecordName" style="color:#065f46;"></p>
-                        <div class="alert alert-success py-2 small mb-0">
-                            <i class="bi bi-check-circle me-1"></i>
-                            This record will be restored to its original state and become active again.
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2 mt-4">
-                        <button type="button" class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn fw-semibold flex-fill" style="background:#059669;color:#fff;"
-                                onclick="submitRestore()">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>Confirm Restore
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <?php
+            $queryParams = $_GET;
+            unset($queryParams['page']);
+            $baseQuery = http_build_query($queryParams);
+            $baseUrl = '?' . ($baseQuery ? $baseQuery . '&' : '');
+            $pageStart = max(1, $archivePage - 2);
+            $pageEnd = min($totalPages, $archivePage + 2);
+        ?>
+        <nav class="archive-pagination" aria-label="Archive table pagination">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item <?= $archivePage <= 1 ? 'disabled' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . max(1, $archivePage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page">&laquo;</a>
+                </li>
+                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
+                <li class="page-item <?= $pageNumber === $archivePage ? 'active' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $archivePage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
+                </li>
+                <?php endfor; ?>
+                <li class="page-item <?= $archivePage >= $totalPages ? 'disabled' : '' ?>">
+                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . min($totalPages, $archivePage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page">&raquo;</a>
+                </li>
+            </ul>
+        </nav>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
 
@@ -351,25 +388,10 @@ if (window.location.hash === '#logs-table') {
     setTimeout(function(){ var t=document.getElementById('logs-table'); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }, 80);
 }
 
-function getRecordLabel(type, data) {
-    if (type === 'users')     return (data.first_name || '') + ' ' + (data.last_name || '');
-    if (type === 'barangays') return data.barangay_name || '—';
-    if (type === 'notices')   return data.title || '—';
-    if (type === 'requests')  return data.subject || data.title || '—';
-    return 'Record #' + (data.id || '');
-}
-
-function openRestoreModal(archiveId, type, data) {
-    document.getElementById('restoreArchiveId').value        = archiveId;
-    document.getElementById('restoreRecordName').textContent = getRecordLabel(type, data);
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('restoreArchiveModal')).show();
-}
-
 function submitRestore() {
     bootstrap.Modal.getInstance(document.getElementById('restoreArchiveModal')).hide();
     document.getElementById('archiveRestoreForm').submit();
 }
 </script>
-<style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
 </body>
 </html>

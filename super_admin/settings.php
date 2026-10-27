@@ -104,10 +104,9 @@ $tab = $_GET['tab'] ?? 'general';
 $validTabs = ['general','profile','security','notifications','archive','appearance','authenticator'];
 if (!in_array($tab, $validTabs)) $tab = 'general';
 $autoOpenChangePw = isset($_GET['action']) && $_GET['action'] === 'change_pw';
-$isAjax = !empty($_GET['ajax']) && $_GET['ajax'] === '1' && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET';
+$isAjax  = !empty($_GET['ajax'])  && $_GET['ajax']  === '1' && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET';
 
-$flash = getFlash('settings');
-$flash2fa = getFlash('2fa'); // also catch 2fa flashes redirected here
+
 
 // ── 2FA migrations ─────────────────────────────────────────
 try { $db->exec("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64) NULL"); } catch (PDOException $e) {}
@@ -245,98 +244,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
         }
 
-        $db->prepare("UPDATE users SET first_name=?,middle_name=?,last_name=?,email=?,contact_number=?,position=? WHERE id=?")
-           ->execute([$fname, $mname, $lname, $email, $contact, $pos, $u['id']]);
+        $photoDir = UPLOAD_PATH . 'profile_photos/';
+        $photoStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
+        $photoStmt->execute([$u['id']]);
+        $oldPhoto = $photoStmt->fetchColumn() ?: null;
+        $profilePhoto = ($_POST['remove_profile_photo'] ?? '0') === '1' ? null : $oldPhoto;
+        $newPhotoPath = null;
+        $upload = $_FILES['profile_photo'] ?? null;
 
-        // Update session name
+        if ($upload && $upload['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($upload['error'] !== UPLOAD_ERR_OK) {
+                $uploadErrors = [
+                    UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload limit.',
+                    UPLOAD_ERR_FORM_SIZE  => 'File exceeds form upload limit.',
+                    UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
+                    UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder.',
+                    UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
+                ];
+                flash('settings', $uploadErrors[$upload['error']] ?? 'The photo upload failed.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+            if ($upload['size'] > 2 * 1024 * 1024) {
+                flash('settings', 'File too large. Maximum allowed size is 2 MB.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+            if (!is_uploaded_file($upload['tmp_name'])) {
+                flash('settings', 'The selected photo was not received. Please choose it again.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+
+            $extension = strtolower(pathinfo($upload['name'], PATHINFO_EXTENSION));
+            $mimeExtensions = [
+                'image/jpeg' => ['jpg', 'jpeg', 'jfif'],
+                'image/png'  => ['png'],
+                'image/gif'  => ['gif'],
+                'image/webp' => ['webp'],
+            ];
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = $finfo ? finfo_file($finfo, $upload['tmp_name']) : false;
+            if ($finfo) finfo_close($finfo);
+            $imageInfo = @getimagesize($upload['tmp_name']);
+            if (!is_string($mime) || !isset($mimeExtensions[$mime])
+                || !in_array($extension, $mimeExtensions[$mime], true)
+                || !$imageInfo || ($imageInfo['mime'] ?? '') !== $mime) {
+                flash('settings', 'Invalid image. Please use a JPG, JFIF, PNG, GIF, or WEBP file.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+
+            if (!is_dir($photoDir) && !mkdir($photoDir, 0755, true) && !is_dir($photoDir)) {
+                flash('settings', 'Could not create the profile photo folder.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+            $safeExtension = $mime === 'image/jpeg' ? 'jpg' : substr($mime, 6);
+            $filename = 'user_' . (int)$u['id'] . '_' . bin2hex(random_bytes(8)) . '.' . $safeExtension;
+            $newPhotoPath = $photoDir . $filename;
+            if (!move_uploaded_file($upload['tmp_name'], $newPhotoPath)) {
+                flash('settings', 'Could not save the selected photo. Check the upload folder permissions and try again.', 'danger');
+                redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+            }
+            $profilePhoto = $filename;
+        }
+
+        try {
+            $db->beginTransaction();
+            $db->prepare("UPDATE users SET first_name=?,middle_name=?,last_name=?,email=?,contact_number=?,position=?,profile_photo=? WHERE id=?")
+               ->execute([$fname, $mname, $lname, $email, $contact, $pos, $profilePhoto, $u['id']]);
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            if ($newPhotoPath && is_file($newPhotoPath)) unlink($newPhotoPath);
+            error_log('[Profile save] ' . $e->getMessage());
+            flash('settings', 'Could not save your profile. Please try again.', 'danger');
+            redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
+        }
+
+        if ($oldPhoto && $oldPhoto !== $profilePhoto && basename($oldPhoto) === $oldPhoto
+            && is_file($photoDir . $oldPhoto) && !unlink($photoDir . $oldPhoto)) {
+            error_log('[Profile photo] Could not remove replaced photo file: ' . $photoDir . $oldPhoto);
+        }
         $_SESSION['user_name']  = "$fname $lname";
         $_SESSION['user_email'] = $email;
+        $_SESSION['user_photo'] = $profilePhoto;
 
         logActivity($u['id'], 'UPDATE_PROFILE', 'Settings', 'Updated own profile');
         flash('settings', 'Profile updated successfully.', 'success');
-        redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
-    }
-
-    // ── Profile Photo Upload ───────────────────────────────
-    if ($action === 'save_profile_photo') {
-        $photoDir = UPLOAD_PATH . 'profile_photos/';
-        if (!is_dir($photoDir)) mkdir($photoDir, 0755, true);
-
-        // Detect fetch/AJAX call — return JSON instead of redirect
-        $isFetch = !empty($_SERVER['HTTP_X_CSRF_TOKEN'])
-                   || str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')
-                   || ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest';
-
-        $jsonOk  = fn(string $msg) => (function() use ($msg) {
-            header('Content-Type: application/json');
-            echo json_encode(['ok' => true,  'msg' => $msg]); exit;
-        })();
-        $jsonErr = fn(string $msg) => (function() use ($msg) {
-            header('Content-Type: application/json');
-            echo json_encode(['ok' => false, 'msg' => $msg]); exit;
-        })();
-
-        if (($_POST['remove_photo'] ?? '0') === '1') {
-            $cur = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-            $cur->execute([$u['id']]);
-            $old = $cur->fetchColumn();
-            if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
-            $db->prepare("UPDATE users SET profile_photo=NULL WHERE id=?")->execute([$u['id']]);
-            $_SESSION['user_photo'] = null;
-            logActivity($u['id'], 'REMOVE_PROFILE_PHOTO', 'Settings', 'Removed profile photo');
-            if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'Photo removed.']); exit; }
-            flash('settings', 'Profile photo removed.', 'info');
-        } elseif (!empty($_FILES['profile_photo']['name']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-            $file    = $_FILES['profile_photo'];
-            $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg','jpeg','png','gif','webp'];
-            $finfo   = finfo_open(FILEINFO_MIME_TYPE);
-            $mime    = finfo_file($finfo, $file['tmp_name']);
-            finfo_close($finfo);
-            $allowedMime = ['image/jpeg','image/png','image/gif','image/webp'];
-
-            if (!in_array($ext, $allowed) || !in_array($mime, $allowedMime)) {
-                if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'Invalid file type. Only JPG, PNG, GIF, and WEBP are allowed.']); exit; }
-                flash('settings', 'Invalid file type. Only JPG, PNG, GIF, and WEBP are allowed.', 'danger');
-            } elseif ($file['size'] > 2 * 1024 * 1024) {
-                if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'File too large. Maximum allowed size is 2 MB.']); exit; }
-                flash('settings', 'File too large. Maximum allowed size is 2 MB.', 'danger');
-            } else {
-                $cur = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-                $cur->execute([$u['id']]);
-                $old = $cur->fetchColumn();
-                if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
-
-                // Resize to 200×200px max and save as WebP (falls back to JPEG if WebP unavailable)
-                $baseName = 'user_' . $u['id'] . '_' . time();
-                try {
-                    $fname = resizeAndSaveImage($file['tmp_name'], $mime, $photoDir, $baseName, 200, 200, 85);
-                    $db->prepare("UPDATE users SET profile_photo=? WHERE id=?")->execute([$fname, $u['id']]);
-                    $_SESSION['user_photo'] = $fname;
-                    logActivity($u['id'], 'UPDATE_PROFILE_PHOTO', 'Settings', 'Updated profile photo');
-                    if ($isFetch) {
-                        header('Content-Type: application/json');
-                        echo json_encode(['ok'=>true,'msg'=>'Photo saved!','photoUrl'=> UPLOAD_URL . 'profile_photos/' . $fname]);
-                        exit;
-                    }
-                    flash('settings', 'Profile photo updated successfully.', 'success');
-                } catch (\Throwable $e) {
-                    if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'Failed to save the uploaded file. Please try again.']); exit; }
-                    flash('settings', 'Failed to save the uploaded file. Please try again.', 'danger');
-                }
-            }
-        } elseif (!empty($_FILES['profile_photo']['error']) && $_FILES['profile_photo']['error'] !== UPLOAD_ERR_NO_FILE) {
-            $uploadErrors = [
-                UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload limit.',
-                UPLOAD_ERR_FORM_SIZE  => 'File exceeds form upload limit.',
-                UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
-                UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder.',
-                UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
-            ];
-            $errMsg = $uploadErrors[$_FILES['profile_photo']['error']] ?? 'Upload error code ' . $_FILES['profile_photo']['error'];
-            if ($isFetch) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>$errMsg]); exit; }
-            flash('settings', $errMsg, 'danger');
-        }
         redirect(BASE_URL . '/super_admin/settings.php?tab=profile');
     }
 
@@ -618,8 +609,9 @@ if (!$isAjax || $tab === 'barangay_management') {
     $bmTermYears = (int)getSetting($db, 'official_term_years', '3');
 }
 
-$pageTitle = 'Settings';
-?>
+    $flash = getFlash('settings');
+    $pageTitle = 'Settings';
+    ?>
 
 <?php
 $pageIcon     = 'bi-gear-fill';
@@ -639,69 +631,47 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         /* ── Settings Layout ─────────────────────────────── */
-        /* Suppress the global page fade-in on settings — prevents sidebar blink */
         .main-content { animation: none !important; contain: none !important; }
         #settingsContent { min-height: 400px; }
-
-        /* Settings sidebar lives OUTSIDE main-content — fixed, never repaints */
+        .settings-wrap { display: flex; gap: 24px; align-items: flex-start; }
         .settings-sidebar {
-            position: fixed;
-            top: calc(var(--topbar-height) + 20px);
-            left: calc(var(--sidebar-width) + 22px);
-            width: 220px;
-            max-height: calc(100vh - var(--topbar-height) - 40px);
-            overflow-y: auto;
+            width: 220px; min-width: 220px;
             background: rgba(255,255,255,0.7);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255,255,255,0.8);
             border-radius: 16px;
             padding: 12px 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            z-index: 50;
-            will-change: transform;
-            transform: translateZ(0);
+            position: sticky; top: 24px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            will-change: transform; transform: translateZ(0);
+            backface-visibility: hidden; isolation: isolate;
         }
-        body.sidebar-collapsed .settings-sidebar {
-            left: calc(var(--sidebar-collapsed-width) + 22px);
-        }
-        /* main-content left-padding accounts for the fixed settings sidebar */
-        .settings-main {
-            margin-left: calc(220px + 24px);
-        }
-        .settings-wrap { display: block; }
-        .settings-content { display: block; }
+        .settings-content { flex: 1; min-width: 0; }
         .settings-sidebar .s-title {
-            font-size: 0.65rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted-color, #3a7fa8);
-            padding: 6px 12px 4px;
+            font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--text-muted-color,#3a7fa8); padding: 6px 12px 4px;
         }
         .settings-sidebar .s-link {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 9px 14px;
-            border-radius: 10px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: var(--text-sub, #2a5070);
-            text-decoration: none;
-            transition: background 0.15s, color 0.15s;
-            margin-bottom: 2px;
+            display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+            border-radius: 10px; font-size: 0.875rem; font-weight: 500;
+            color: var(--text-sub,#2a5070); text-decoration: none;
+            transition: background 0.15s, color 0.15s; margin-bottom: 2px;
         }
         .settings-sidebar .s-link i { font-size: 1rem; width: 20px; text-align: center; }
         .settings-sidebar .s-link:hover { background: rgba(26,79,122,0.07); color: var(--primary,#1a4f7a); }
         .settings-sidebar .s-link.active {
-            background: linear-gradient(90deg, #1a4f7a 0%, #3a7fa8 100%);
-            color: #fff;
-            box-shadow: 0 3px 10px rgba(26,79,122,0.25);
+            background: linear-gradient(90deg,#1a4f7a 0%,#3a7fa8 100%);
+            color: #fff; box-shadow: 0 3px 10px rgba(26,79,122,0.25);
         }
         .settings-sidebar .s-link.active i { color: #fff; }
-        /* Smooth content swap */
-        #settingsContent { transition: opacity 0.12s ease; }
+        @media (max-width: 768px) {
+            .settings-wrap { flex-direction: column; }
+            .settings-sidebar { position: static; width: 100%; max-height: unset; }
+        }
+
+        /* ── Card & component styles ── */
         .settings-card {
             background: rgba(255,255,255,0.72);
             backdrop-filter: blur(18px);
@@ -767,8 +737,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
         .badge-super { background: linear-gradient(90deg,#1a4f7a,#3a7fa8); color:#fff; }
         .badge-brgy  { background: rgba(26,79,122,0.1); color:#1a4f7a; }
         @media (max-width: 768px) {
-            .settings-sidebar { position: static; width: 100%; max-height: unset; margin-bottom: 16px; }
-            .settings-main { margin-left: 0; }
+            .settings-sidebar { position: static; width: 100%; max-height: unset; }
         }
     </style>
 </head>
@@ -776,37 +745,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
-<!-- ── Settings sidebar — outside main-content so page animation never touches it ── -->
-<nav class="settings-sidebar" id="settingsSidebar">
-    <div class="s-title">Settings</div>
-    <?php
-    $navItems = [
-        'general'       => ['bi-globe2',            'General'],
-        'profile'       => ['bi-person-fill',       'Profile'],
-        'security'      => ['bi-shield-lock-fill',  'Security'],
-        'notifications' => ['bi-bell-fill',         'Notifications'],
-        'archive'       => ['bi-archive-fill',      'Archive'],
-        'appearance'    => ['bi-palette-fill',      'Appearance'],
-        'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
-    ];
-    foreach ($navItems as $t => [$icon, $label]):
-    ?>
-    <a href="?tab=<?= $t ?>" class="s-link <?= $tab===$t?'active':'' ?>"
-       data-tab="<?= $t ?>" onclick="loadTab('<?= $t ?>',this);return false;">
-        <i class="bi <?= $icon ?>"></i> <?= $label ?>
-    </a>
-    <?php endforeach; ?>
-    <div class="s-title mt-3">Account</div>
-    <a href="#" class="s-link" onclick="document.getElementById('changePasswordModal').style.display='flex';return false;">
-        <i class="bi bi-key-fill"></i> Change Password
-    </a>
-    <a href="<?= BASE_URL ?>/super_admin/audit_log.php" class="s-link">
-        <i class="bi bi-shield-check-fill"></i> Audit Log
-    </a>
-</nav>
-
 <div class="main-content">
-<div class="settings-main">
 
     <?php if ($flash): ?>
         <div class="alert alert-<?= $flash['type'] ?> alert-dismissible fade show mb-3">
@@ -817,6 +756,21 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <?php endif; ?>
 
     <div class="settings-wrap">
+        <!-- ── Settings Sidebar ──────────────────────────── -->
+        <nav class="settings-sidebar" id="settingsSidebar">
+            <div class="s-title">Settings</div>
+            <a href="#" class="s-link <?= $tab==='general'?'active':'' ?>" data-tab="general" onclick="loadTab('general',this);return false;"><i class="bi bi-globe2"></i> General</a>
+            <a href="#" class="s-link <?= $tab==='profile'?'active':'' ?>" data-tab="profile" onclick="loadTab('profile',this);return false;"><i class="bi bi-person-fill"></i> Profile</a>
+            <a href="#" class="s-link <?= $tab==='security'?'active':'' ?>" data-tab="security" onclick="loadTab('security',this);return false;"><i class="bi bi-shield-lock-fill"></i> Security</a>
+            <a href="#" class="s-link <?= $tab==='notifications'?'active':'' ?>" data-tab="notifications" onclick="loadTab('notifications',this);return false;"><i class="bi bi-bell-fill"></i> Notifications</a>
+            <a href="#" class="s-link <?= $tab==='archive'?'active':'' ?>" data-tab="archive" onclick="loadTab('archive',this);return false;"><i class="bi bi-archive-fill"></i> Archive</a>
+            <a href="#" class="s-link <?= $tab==='appearance'?'active':'' ?>" data-tab="appearance" onclick="loadTab('appearance',this);return false;"><i class="bi bi-palette-fill"></i> Appearance</a>
+            <a href="#" class="s-link <?= $tab==='authenticator'?'active':'' ?>" data-tab="authenticator" onclick="loadTab('authenticator',this);return false;"><i class="bi bi-shield-check-fill"></i> Authenticator</a>
+            <div class="s-title mt-3">Account</div>
+            <a href="#" class="s-link" onclick="document.getElementById('changePasswordModal').style.display='flex';return false;"><i class="bi bi-key-fill"></i> Change Password</a>
+            <a href="<?= BASE_URL ?>/super_admin/audit_log.php" class="s-link"><i class="bi bi-shield-check-fill"></i> Audit Log</a>
+        </nav>
+
         <!-- ── Settings Content ─────────────────────────── -->
         <?php if ($isAjax) ob_start(); ?>
         <div class="settings-content" id="settingsContent">
@@ -1017,8 +971,9 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                 $saPhoto    = $selfRow['profile_photo'] ?? '';
                 $saPhotoUrl = $saPhoto ? UPLOAD_URL . 'profile_photos/' . $saPhoto : '';
             ?>
-            <form method="POST">
+            <form method="POST" enctype="multipart/form-data" action="<?= BASE_URL ?>/super_admin/settings.php?tab=profile" data-no-ajax id="saProfileForm">
                 <input type="hidden" name="action" value="save_profile">
+                <input type="hidden" name="remove_profile_photo" id="saRemoveProfilePhoto" value="0">
                 <?= csrfField() ?>
                 <div class="settings-card">
                     <div class="sc-header">
@@ -1029,31 +984,22 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                         </div>
                     </div>
                     <div class="sc-body">
-                        <!-- Avatar with inline photo upload -->
-                        <!-- NOTE: photo upload is handled by a separate form (#saPhotoUploadForm) outside this form
-                             to avoid nested-form issues. JS uses fetch+FormData to submit it. -->
                         <div class="d-flex align-items-center gap-4 mb-4 p-3 rounded-3" style="background:rgba(26,79,122,0.05);">
-
-                            <!-- Photo input (standalone, not nested) -->
                             <input type="file" name="profile_photo" id="saProfilePhotoInput"
-                                   accept="image/jpeg,image/png,image/gif,image/webp"
+                                   accept="image/jpeg,.jfif,image/png,image/gif,image/webp"
                                    style="display:none;"
-                                   onchange="autoSubmitSAPhoto(this)">
+                                   onchange="previewSAPhoto(this)">
 
                             <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
                                 <div style="width:90px;height:90px;border-radius:12px;overflow:hidden;border:2px solid rgba(26,79,122,0.2);background:#e8f0f7;">
-                                    <?php if ($saPhotoUrl): ?>
-                                        <img id="saPhotoPreview" src="<?= htmlspecialchars($saPhotoUrl) ?>"
-                                             alt="Profile Photo"
-                                             style="width:100%;height:100%;object-fit:cover;">
-                                    <?php else: ?>
-                                        <img id="saPhotoPreview" src="" alt=""
-                                             style="width:100%;height:100%;object-fit:cover;display:none;">
-                                        <div id="saPhotoInitials"
-                                             style="width:100%;height:100%;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.8rem;font-weight:700;">
-                                            <?= strtoupper(substr($selfRow['first_name'],0,1) . substr($selfRow['last_name'],0,1)) ?>
-                                        </div>
-                                    <?php endif; ?>
+                                    <img id="saPhotoPreview" src="<?= htmlspecialchars($saPhotoUrl) ?>"
+                                         data-saved-src="<?= htmlspecialchars($saPhotoUrl) ?>"
+                                         alt="Profile Photo"
+                                         style="width:100%;height:100%;object-fit:cover;<?= $saPhotoUrl ? '' : 'display:none;' ?>">
+                                    <div id="saPhotoInitials"
+                                         style="width:100%;height:100%;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);display:<?= $saPhotoUrl ? 'none' : 'flex' ?>;align-items:center;justify-content:center;color:#fff;font-size:1.8rem;font-weight:700;">
+                                        <?= strtoupper(substr($selfRow['first_name'],0,1) . substr($selfRow['last_name'],0,1)) ?>
+                                    </div>
                                 </div>
                                 <button type="button"
                                         onclick="document.getElementById('saProfilePhotoInput').click()"
@@ -1068,26 +1014,16 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                                 <div class="fw-bold fs-6" id="saDisplayName"><?= htmlspecialchars($selfRow['first_name'].' '.$selfRow['last_name']) ?></div>
                                 <div class="small text-muted"><?= htmlspecialchars($selfRow['email']) ?></div>
                                 <span class="badge badge-super user-role-badge mt-1">Super Admin</span>
-                                <?php if ($saPhoto): ?>
-                                <div class="mt-2" id="saRemovePhotoWrap">
+                                <div class="mt-2" id="saRemovePhotoWrap" style="<?= $saPhoto ? '' : 'display:none;' ?>">
                                     <button type="button" class="btn btn-sm btn-outline-danger"
                                             style="border-radius:6px;font-size:0.72rem;padding:2px 10px;"
-                                            onclick="removeSAPhoto()">
+                                            onclick="toggleSAPhotoRemoval()">
                                         <i class="bi bi-trash3 me-1"></i>Remove Photo
                                     </button>
                                 </div>
-                                <?php else: ?>
-                                <div class="mt-2" id="saRemovePhotoWrap" style="display:none;">
-                                    <button type="button" class="btn btn-sm btn-outline-danger"
-                                            style="border-radius:6px;font-size:0.72rem;padding:2px 10px;"
-                                            onclick="removeSAPhoto()">
-                                        <i class="bi bi-trash3 me-1"></i>Remove Photo
-                                    </button>
-                                </div>
-                                <?php endif; ?>
-                                <div id="saPhotoUploadStatus" class="mt-1" style="display:none;font-size:0.75rem;"></div>
+                                <div id="saPhotoUploadStatus" class="mt-1" style="display:none;font-size:0.75rem;" aria-live="polite"></div>
                                 <div class="mt-1" style="font-size:0.7rem;color:#94a3b8;">
-                                    <i class="bi bi-pencil-fill me-1"></i>Click the pencil icon to change photo &nbsp;·&nbsp; JPG, PNG, WEBP, GIF &nbsp;·&nbsp; Max 2 MB
+                                    <i class="bi bi-pencil-fill me-1"></i>Choose a photo, then click Save Profile to apply it &nbsp;·&nbsp; JPG, JFIF, PNG, WEBP, GIF &nbsp;·&nbsp; Max 2 MB
                                 </div>
                             </div>
                         </div>
@@ -1149,13 +1085,6 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             </form>
 
             <?php endif; ?>
-
-            <?php /* ── Standalone photo-upload form (outside all other forms to avoid nested-form issues) ── */ ?>
-            <form method="POST" enctype="multipart/form-data" id="saPhotoUploadForm" action="<?= BASE_URL ?>/super_admin/settings.php" style="display:none;">
-                <input type="hidden" name="action" value="save_profile_photo">
-                <?= csrfField() ?>
-                <input type="file" name="profile_photo" id="saPhotoUploadInput">
-            </form>
 
             <?php /* ══════════════════════════════════════════
                TAB: SECURITY
@@ -1671,7 +1600,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                 $twoFaUser    = $twoFaRow->fetch();
                 $is2FAEnabled = (bool)($twoFaUser['two_fa_enabled'] ?? 0);
                 $hasSecret    = !empty($twoFaUser['totp_secret']);
-                $qrUrl        = $hasSecret ? TOTP::getQRCodeUrl($twoFaUser['totp_secret'], $twoFaUser['email'], APP_NAME) : null;
+                $qrDataUri    = $hasSecret ? TOTP::getQRCodeDataUri($twoFaUser['totp_secret'], $twoFaUser['email'], APP_NAME) : null;
             ?>
 
             <!-- Flash for 2FA actions -->
@@ -1739,7 +1668,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                     <!-- Secret generated — show QR + verify form -->
                     <div class="row g-4 align-items-center">
                         <div class="col-md-5 text-center">
-                            <img src="<?= $qrUrl ?>" alt="QR Code" class="img-fluid rounded border p-2" style="max-width:200px;">
+                            <img src="<?= htmlspecialchars($qrDataUri, ENT_QUOTES, 'UTF-8') ?>" alt="QR Code" class="img-fluid rounded border p-2" style="max-width:200px;">
                             <div class="mt-2 small text-muted">Scan with Google Authenticator,<br>Authy, or Microsoft Authenticator</div>
                         </div>
                         <div class="col-md-7">
@@ -2404,7 +2333,6 @@ $pageSubtitle = 'Manage system configuration and preferences.';
         </div><!-- end settings-content -->
         <?php if ($isAjax): echo ob_get_clean(); exit; endif; ?>
     </div><!-- end settings-wrap -->
-</div><!-- end settings-main -->
 </div><!-- end main-content -->
 
 <!-- ══════════════════════════════════════════════════════════
@@ -2622,18 +2550,27 @@ function showCPAlert(type, msg) {
 
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
 
-// ── Super Admin profile photo: preview then upload via fetch ─────────────
-function autoSubmitSAPhoto(input) {
+// ── Super Admin profile photo: preview changes until Save Profile is submitted ──
+function previewSAPhoto(input) {
     const preview    = document.getElementById('saPhotoPreview');
     const initials   = document.getElementById('saPhotoInitials');
     const errEl      = document.getElementById('saPhotoSizeErr');
     const statusEl   = document.getElementById('saPhotoUploadStatus');
+    const savedSrc   = preview.dataset.savedSrc || '';
+    const removeField = document.getElementById('saRemoveProfilePhoto');
     const removeWrap = document.getElementById('saRemovePhotoWrap');
-    errEl.style.display    = 'none';
-    statusEl.style.display = 'none';
+    const file = input.files?.[0];
 
-    if (!input.files || !input.files[0]) return;
-    const file = input.files[0];
+    errEl.style.display    = 'none';
+    if (!file) return;
+
+    const extension = file.name.split('.').pop().toLowerCase();
+    if (!['jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp'].includes(extension)) {
+        errEl.textContent = 'Choose a JPG, JFIF, PNG, GIF, or WEBP image.';
+        errEl.style.display = 'block';
+        input.value = '';
+        return;
+    }
 
     if (file.size > 2 * 1024 * 1024) {
         errEl.textContent   = 'File exceeds 2 MB limit. Please choose a smaller image.';
@@ -2642,134 +2579,57 @@ function autoSubmitSAPhoto(input) {
         return;
     }
 
-    // Show preview immediately
+    removeField.value = '0';
+    const removeButton = removeWrap?.querySelector('button');
+    if (removeButton) removeButton.innerHTML = '<i class="bi bi-trash3 me-1"></i>Remove Photo';
+
     const reader = new FileReader();
     reader.onload = function(e) {
         preview.src           = e.target.result;
         preview.style.display = 'block';
         if (initials) initials.style.display = 'none';
+        statusEl.textContent  = 'Preview only — click Save Profile to apply this photo.';
+        statusEl.style.color  = '#3a7fa8';
+        statusEl.style.display = 'block';
+        if (removeWrap && savedSrc) removeWrap.style.display = 'block';
+    };
+    reader.onerror = function() {
+        statusEl.textContent = 'Could not read the selected image. Please try another file.';
+        statusEl.style.color = '#dc2626';
+        statusEl.style.display = 'block';
+        input.value = '';
     };
     reader.readAsDataURL(file);
-
-    // Show uploading indicator
-    statusEl.innerHTML     = '<i class="bi bi-hourglass-split me-1"></i>Uploading…';
-    statusEl.style.color   = '#3a7fa8';
-    statusEl.style.display = 'block';
-
-    // Always read CSRF from meta tag (stays fresh after rotation)
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
-    // Build FormData manually — avoids stale CSRF from hidden form input
-    const formData = new FormData();
-    formData.append('action', 'save_profile_photo');
-    formData.append('csrf_token', csrfToken);
-    formData.append('profile_photo', file, file.name);
-
-    // Use relative pathname so it works on localhost AND Tailscale
-    fetch(window.location.pathname, {
-        method:  'POST',
-        headers: { 'X-CSRF-Token': csrfToken },
-        body:    formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) {
-            statusEl.innerHTML   = '<i class="bi bi-check-circle-fill me-1"></i>' + data.msg;
-            statusEl.style.color = '#16a34a';
-            if (removeWrap) removeWrap.style.display = 'block';
-            input.value = '';
-            // Sync the topbar avatar with the new photo URL
-            if (data.photoUrl) syncTopbarPhoto(data.photoUrl);
-            refreshCsrfToken();
-            setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
-        } else {
-            statusEl.innerHTML   = '<i class="bi bi-x-circle-fill me-1"></i>' + data.msg;
-            statusEl.style.color = '#dc2626';
-        }
-    })
-    .catch(err => {
-        statusEl.innerHTML   = '<i class="bi bi-x-circle-fill me-1"></i>Network error. Try again.';
-        statusEl.style.color = '#dc2626';
-        console.error('Photo upload error:', err);
-    });
 }
 
-// ── Remove profile photo via fetch ────────────────────────────────────────
-function removeSAPhoto() {
-    if (!confirm('Remove your profile photo?')) return;
-
-    const statusEl   = document.getElementById('saPhotoUploadStatus');
+function toggleSAPhotoRemoval() {
+    const removeField = document.getElementById('saRemoveProfilePhoto');
+    const input      = document.getElementById('saProfilePhotoInput');
     const preview    = document.getElementById('saPhotoPreview');
     const initials   = document.getElementById('saPhotoInitials');
     const removeWrap = document.getElementById('saRemovePhotoWrap');
+    const statusEl   = document.getElementById('saPhotoUploadStatus');
+    const removeButton = removeWrap?.querySelector('button');
+    const savedSrc   = preview.dataset.savedSrc || '';
 
-    statusEl.innerHTML     = '<i class="bi bi-hourglass-split me-1"></i>Removing…';
-    statusEl.style.color   = '#3a7fa8';
-    statusEl.style.display = 'block';
-
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
-    const formData = new FormData();
-    formData.append('action', 'save_profile_photo');
-    formData.append('remove_photo', '1');
-    formData.append('csrf_token', csrfToken);
-
-    fetch(window.location.pathname, {
-        method:  'POST',
-        headers: { 'X-CSRF-Token': csrfToken },
-        body:    formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.ok) {
-            if (preview)  { preview.src = ''; preview.style.display = 'none'; }
-            if (initials) { initials.style.display = 'flex'; }
-            if (removeWrap) removeWrap.style.display = 'none';
-            statusEl.innerHTML   = '<i class="bi bi-check-circle-fill me-1"></i>' + data.msg;
-            statusEl.style.color = '#16a34a';
-            syncTopbarPhoto(null); // revert topbar to initials
-            refreshCsrfToken();
-            setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
-        } else {
-            statusEl.innerHTML   = '<i class="bi bi-x-circle-fill me-1"></i>' + data.msg;
-            statusEl.style.color = '#dc2626';
-        }
-    })
-    .catch(() => {
-        statusEl.innerHTML   = '<i class="bi bi-x-circle-fill me-1"></i>Network error. Try again.';
-        statusEl.style.color = '#dc2626';
-    });
-}
-
-// ── Sync topbar avatar immediately after photo change ─────────────────────
-function syncTopbarPhoto(photoUrl) {
-    // The topbar renders an <img> for the user avatar — update its src live
-    const topbarImg = document.querySelector('.topbar img[alt="Profile"]');
-    if (photoUrl) {
-        if (topbarImg) {
-            topbarImg.src = photoUrl;
-        } else {
-            // Topbar was showing initials — reload to re-render with the photo
-            location.reload();
-        }
+    if (removeField.value !== '1') {
+        input.value = '';
+        removeField.value = '1';
+        preview.removeAttribute('src');
+        preview.style.display = 'none';
+        if (initials) initials.style.display = 'flex';
+        if (removeButton) removeButton.innerHTML = '<i class="bi bi-arrow-counterclockwise me-1"></i>Undo Remove';
+        statusEl.textContent = 'Photo removal is pending — click Save Profile to apply it.';
     } else {
-        // Photo removed — reload so topbar re-renders initials
-        location.reload();
+        removeField.value = '0';
+        preview.src = savedSrc;
+        preview.style.display = savedSrc ? 'block' : 'none';
+        if (initials) initials.style.display = savedSrc ? 'none' : 'flex';
+        if (removeButton) removeButton.innerHTML = '<i class="bi bi-trash3 me-1"></i>Remove Photo';
+        statusEl.textContent = 'Photo removal cancelled.';
     }
-}
-
-// ── Refresh CSRF meta tag after any POST rotates the token ────────────────
-function refreshCsrfToken() {
-    fetch(window.location.pathname + '?tab=profile&_csrf_refresh=1', { method: 'GET' })
-    .then(r => r.text())
-    .then(html => {
-        const match = html.match(/<meta name="csrf-token" content="([^"]+)"/);
-        if (match && match[1]) {
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            if (meta) meta.content = match[1];
-        }
-    })
-    .catch(() => {}); // silent — next save will redirect anyway
+    statusEl.style.color = '#3a7fa8';
+    statusEl.style.display = 'block';
 }
 
 <?php if ($autoOpenChangePw): ?>
@@ -2836,55 +2696,93 @@ function updateFontSize(idx) {
 </script>
 
 <script>
-/* ── Settings AJAX tab switching — no blink, sidebar stays fixed ── */
+/* ── Settings AJAX tab switching — prefetch on hover for instant feel ── */
 (function () {
     const BASE = '<?= BASE_URL ?>/super_admin/settings.php';
     const contentEl = () => document.getElementById('settingsContent');
+    let _currentFetch = null;
+    const _cache = {};         // tab => html string cache
+    const _inflight = {};      // tab => AbortController for prefetch
 
-    function setActive(tab) {
+    // Prefetch a tab in the background and cache result
+    function prefetch(tab) {
+        if (_cache[tab] || _inflight[tab]) return;
+        const ctrl = new AbortController();
+        _inflight[tab] = ctrl;
+        fetch(BASE + '?tab=' + encodeURIComponent(tab) + '&ajax=1', {
+            signal: ctrl.signal,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.text())
+        .then(html => {
+            delete _inflight[tab];
+            _cache[tab] = html;
+        })
+        .catch(() => { delete _inflight[tab]; });
+    }
+
+    // Wire hover prefetch on all tab links
+    function wireHoverPrefetch() {
         document.querySelectorAll('#settingsSidebar .s-link[data-tab]').forEach(a => {
-            a.classList.toggle('active', a.dataset.tab === tab);
+            if (a.dataset.prefetchWired) return;
+            a.dataset.prefetchWired = '1';
+            a.addEventListener('mouseenter', () => prefetch(a.dataset.tab));
+            a.addEventListener('touchstart', () => prefetch(a.dataset.tab), {passive:true});
+        });
+    }
+
+    function swapContent(tab, html) {
+        const el2 = contentEl();
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const inner = tmp.querySelector('#settingsContent');
+        el2.innerHTML = inner ? inner.innerHTML : html;
+        bindForms();
+        el2.querySelectorAll('script').forEach(s => {
+            try { (new Function(s.textContent))(); } catch(e) {}
         });
     }
 
     window.loadTab = function (tab, el) {
-        // Optimistic active state — instant
+        // Cancel any in-flight click-fetch
+        if (_currentFetch) { _currentFetch.abort(); _currentFetch = null; }
+
+        // Active state — instant
         document.querySelectorAll('#settingsSidebar .s-link[data-tab]').forEach(a => a.classList.remove('active'));
         if (el) el.classList.add('active');
 
         history.pushState({tab}, '', '?tab=' + tab);
 
-        const el2 = contentEl();
-        el2.style.minHeight = el2.offsetHeight + 'px';
-        el2.style.opacity = '0.4';
+        // If already cached from prefetch — swap immediately, zero wait
+        if (_cache[tab]) {
+            swapContent(tab, _cache[tab]);
+            // Invalidate cache entry so next visit re-fetches fresh data
+            delete _cache[tab];
+            return;
+        }
 
+        // If prefetch is already in-flight, wait for it
+        if (_inflight[tab]) {
+            _inflight[tab]._onDone = function(html) { swapContent(tab, html); };
+            return;
+        }
+
+        // Otherwise fetch now
+        const ctrl = new AbortController();
+        _currentFetch = ctrl;
         fetch(BASE + '?tab=' + encodeURIComponent(tab) + '&ajax=1', {
+            signal: ctrl.signal,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(r => r.text())
         .then(html => {
-            const tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            const inner = tmp.querySelector('#settingsContent');
-            el2.innerHTML = inner ? inner.innerHTML : html;
-            el2.style.transition = 'opacity 0.12s ease';
-            el2.style.opacity = '1';
-            el2.style.minHeight = '';
-            bindForms();
-            // Re-run inline scripts using requestAnimationFrame to avoid
-            // synchronous forced layout that causes the settings sidebar to blink.
-            const scripts = Array.from(el2.querySelectorAll('script'));
-            if (scripts.length) {
-                requestAnimationFrame(() => {
-                    scripts.forEach(s => {
-                        const ns = document.createElement('script');
-                        ns.textContent = s.textContent;
-                        document.body.appendChild(ns).parentNode.removeChild(ns);
-                    });
-                });
-            }
+            _currentFetch = null;
+            swapContent(tab, html);
         })
-        .catch(() => { window.location.href = BASE + '?tab=' + tab; });
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            window.location.href = BASE + '?tab=' + tab;
+        });
     };
 
     // Intercept form POSTs inside the content area — submit via fetch, reload same tab
@@ -2892,7 +2790,7 @@ function updateFontSize(idx) {
         const el2 = contentEl();
         if (!el2) return;
         el2.querySelectorAll('form[method="post"], form[method="POST"]').forEach(form => {
-            if (form.dataset.ajaxBound) return;
+            if (form.dataset.ajaxBound || form.hasAttribute('data-no-ajax')) return;
             form.dataset.ajaxBound = '1';
             form.addEventListener('submit', function (e) {
                 // Skip forms that have file uploads with enctype multipart — let them POST normally
@@ -2901,7 +2799,8 @@ function updateFontSize(idx) {
                 e.preventDefault();
 
                 const formData = new FormData(form);
-                fetch(form.action || BASE + '?tab=' + tab, {
+                const formAction = form.getAttribute('action') || BASE + '?tab=' + tab;
+                fetch(formAction, {
                     method: 'POST',
                     body: formData
                 })
@@ -2925,8 +2824,20 @@ function updateFontSize(idx) {
         loadTab(tab, document.querySelector('#settingsSidebar .s-link[data-tab="' + tab + '"]'));
     });
 
-    // Bind forms on initial load
+    // Bind forms + wire hover prefetch on initial load
     bindForms();
+    wireHoverPrefetch();
+
+    // Prefetch all tabs in the background after page is idle
+    // so first click on any tab is instant
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+            ['general','profile','security','notifications','archive','appearance','authenticator'].forEach(t => {
+                const cur = new URLSearchParams(window.location.search).get('tab') || 'general';
+                if (t !== cur) prefetch(t);
+            });
+        }, { timeout: 3000 });
+    }
 })();
 </script>
 </body>

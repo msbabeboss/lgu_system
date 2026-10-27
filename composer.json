@@ -3,7 +3,8 @@
     "description": "Talavera LGU Information Management System",
     "require": {
         "phpmailer/phpmailer": "^7.0",
-        "pusher/pusher-php-server": "^7.2"
+        "pusher/pusher-php-server": "^7.2",
+        "endroid/qr-code": "^4.8"
     },
     "autoload": {
         "psr-4": {

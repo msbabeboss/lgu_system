@@ -718,7 +718,7 @@ body.sidebar-collapsed .modal {
 .topbar         { transition: padding-left 0.28s cubic-bezier(.4,0,.2,1); }
 .main-content   { transition: margin-left 0.28s cubic-bezier(.4,0,.2,1); }
 
-/* ── Page fade-in — opacity only, NO transform (transform creates stacking context that flickers fixed elements) */
+/* ── Page fade-in ── */
 .main-content {
     animation: pageContentIn 0.2s ease both;
     contain: layout style;
@@ -738,12 +738,14 @@ body.sidebar-collapsed .modal {
     contain: layout style;
 }
 .topbar {
-    isolation: isolate;
-    will-change: transform;
     transform: translate3d(0,0,0);
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
-    contain: layout style;
+}
+
+/* Ensure notification dropdown always floats above page content */
+#notifDropdown .dropdown-menu {
+    z-index: 1050;
 }
 .modal          { transition: padding-left 0.28s cubic-bezier(.4,0,.2,1); }
 

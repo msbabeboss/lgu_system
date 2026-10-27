@@ -1,7 +1,7 @@
 <?php
 $currentPage = basename($_SERVER['PHP_SELF']);
 $u = currentUser();
-$settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archive.php']);
+$settingsOpen = in_array($currentPage, ['settings.php']);
 ?>
 <aside class="sidebar" id="sidebar">
     <!-- Map background overlay -->
@@ -91,6 +91,11 @@ $settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archiv
            data-bs-toggle="tooltip" data-bs-placement="right" title="Activity Log">
             <i class="bi bi-clock-history"></i> <span class="nav-link-text">Activity Log</span>
         </a>
+        <a href="<?= BASE_URL ?>/barangay_admin/archive.php"
+           class="nav-link <?= $currentPage === 'archive.php' ? 'active' : '' ?>"
+           data-bs-toggle="tooltip" data-bs-placement="right" title="Archive">
+            <i class="bi bi-archive-fill"></i> <span class="nav-link-text">Archive</span>
+        </a>
         <a href="<?= BASE_URL ?>/barangay_admin/requests.php"
            class="nav-link <?= $currentPage === 'requests.php' ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Requests">
@@ -109,33 +114,11 @@ $settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archiv
         </a>
 
         <div class="nav-section-title">Configuration</div>
-        <!-- Settings: pure dropdown toggle, no navigation -->
-        <?php $settingsOpen = in_array($currentPage, ['settings.php', 'audit_log.php', 'archive.php']); ?>
-        <div class="nav-has-sub <?= $settingsOpen ? 'nav-sub-open' : '' ?>">
-            <a class="nav-link nav-parent-link <?= $settingsOpen ? 'active' : '' ?>"
-               href="#" onclick="sidebarSubToggle(event, this); return false;">
-                <i class="bi bi-gear-fill"></i>
-                <span class="nav-link-text">Settings</span>
-                <i class="bi bi-chevron-down nav-sub-arrow"></i>
-            </a>
-            <div class="nav-sub-items">
-                <a href="<?= BASE_URL ?>/barangay_admin/settings.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'settings.php' ? 'active' : '' ?>">
-                    <i class="bi bi-sliders"></i>
-                    <span class="nav-link-text">System Settings</span>
-                </a>
-                <a href="<?= BASE_URL ?>/barangay_admin/audit_log.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'audit_log.php' ? 'active' : '' ?>">
-                    <i class="bi bi-shield-check"></i>
-                    <span class="nav-link-text">Audit Log</span>
-                </a>
-                <a href="<?= BASE_URL ?>/barangay_admin/archive.php"
-                   class="nav-link nav-child-link <?= $currentPage === 'archive.php' ? 'active' : '' ?>">
-                    <i class="bi bi-archive-fill"></i>
-                    <span class="nav-link-text">Archive</span>
-                </a>
-            </div>
-        </div>
+        <a href="<?= BASE_URL ?>/barangay_admin/settings.php"
+           class="nav-link <?= $currentPage === 'settings.php' ? 'active' : '' ?>"
+           data-bs-toggle="tooltip" data-bs-placement="right" title="Settings">
+            <i class="bi bi-gear-fill"></i> <span class="nav-link-text">Settings</span>
+        </a>
     </nav>
 
     <div class="sidebar-user">

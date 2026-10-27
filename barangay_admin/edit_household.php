@@ -492,7 +492,7 @@ $pageSubtitle = 'Update household information.';
         </div>
 
         <!-- ── SECTION 4: Members ── -->
-        <div class="hh-section" style="overflow:visible;">
+        <div class="hh-section" style="overflow:visible;position:relative;z-index:5;">
             <div class="hh-section-head">
                 <i class="bi bi-people-fill" style="color:#1a4f7a;"></i>
                 <span>Current Members</span>
@@ -500,10 +500,10 @@ $pageSubtitle = 'Update household information.';
                     <?= count($currentMembers) ?> member<?= count($currentMembers) !== 1 ? 's' : '' ?>
                 </span>
             </div>
-            <div class="hh-section-body p-0">
+            <div class="hh-section-body p-0" style="overflow:visible;">
 
                 <!-- Member table -->
-                <div class="table-responsive">
+                <div class="table-responsive" style="overflow:visible;">
                     <table class="table mb-0" style="font-size:0.83rem;">
                         <thead>
                             <tr style="background:#f8fafc;">
@@ -569,7 +569,7 @@ $pageSubtitle = 'Update household information.';
                 </div>
 
                 <!-- Add Member Form -->
-                <div style="background:rgba(25,135,84,0.04);border-top:1px solid rgba(25,135,84,0.15);padding:16px 18px;overflow:visible;position:relative;z-index:10;">
+                <div style="background:rgba(25,135,84,0.04);border-top:1px solid rgba(25,135,84,0.15);padding:16px 18px;">
                     <div class="fw-semibold text-success mb-3" style="font-size:0.85rem;">
                         <i class="bi bi-person-plus-fill me-2"></i>Add Member to this Household
                     </div>
@@ -580,7 +580,7 @@ $pageSubtitle = 'Update household information.';
                             <div id="addResidentWrap" style="position:relative;">
                                 <div id="addResidentBox"
                                      style="display:flex;align-items:center;gap:6px;border:1px solid #d0dce8;border-radius:7px;padding:5px 10px;background:#fff;cursor:text;font-size:0.84rem;min-height:34px;"
-                                     onclick="openAddResidentDropdown()">
+                                     onclick="focusAddResidentSearch()">
                                     <i class="bi bi-search" style="color:#9ca3af;font-size:0.78rem;flex-shrink:0;"></i>
                                     <input type="text" id="addResidentSearch"
                                            placeholder="Type name to search..."
@@ -594,7 +594,7 @@ $pageSubtitle = 'Update household information.';
                                     </span>
                                 </div>
                                 <div id="addResidentDropdown"
-                                     style="display:none;position:fixed;background:#fff;border:1px solid #d0dce8;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:200px;overflow-y:auto;z-index:99999;">
+                                     style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:2px;background:#fff;border:1px solid #3a7fa8;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:220px;overflow-y:auto;z-index:9999;">
                                 </div>
                             </div>
                         </div>
@@ -609,7 +609,7 @@ $pageSubtitle = 'Update household information.';
                                     <i class="bi bi-chevron-down" style="font-size:0.72rem;color:#9ca3af;"></i>
                                 </div>
                                 <div id="addRelDropdown"
-                                     style="display:none;position:fixed;background:#fff;border:1px solid #d0dce8;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:200px;overflow-y:auto;z-index:99999;">
+                                     style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:2px;background:#fff;border:1px solid #d0dce8;border-radius:7px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:220px;overflow-y:auto;z-index:9999;">
                                     <?php foreach (['Spouse','Son','Daughter','Father','Mother','Brother','Sister',
                                         'Grandfather','Grandmother','Grandson','Granddaughter','Uncle','Aunt',
                                         'Nephew','Niece','Cousin','In-Law','Boarder','Helper','Other'] as $rel): ?>
@@ -752,17 +752,15 @@ function renderAddResidents(items) {
     ).join('');
 }
 
+function focusAddResidentSearch() {
+    document.getElementById('addResidentSearch').focus();
+}
+
 function openAddResidentDropdown() {
-    const box = document.getElementById('addResidentBox');
-    const dd  = document.getElementById('addResidentDropdown');
-    const q   = document.getElementById('addResidentSearch').value.trim();
+    const dd = document.getElementById('addResidentDropdown');
+    const q  = document.getElementById('addResidentSearch').value.trim();
     const filtered = q ? _availResidents.filter(r => r.name.toLowerCase().includes(q.toLowerCase())) : _availResidents;
     renderAddResidents(filtered);
-    // Position fixed relative to trigger
-    const rect = box.getBoundingClientRect();
-    dd.style.top   = (rect.bottom + 2) + 'px';
-    dd.style.left  = rect.left + 'px';
-    dd.style.width = rect.width + 'px';
     dd.style.display = 'block';
     document.getElementById('addResidentBox').style.borderColor = '#3a7fa8';
     document.getElementById('addResidentBox').style.boxShadow  = '0 0 0 3px rgba(58,127,168,0.12)';
@@ -773,12 +771,7 @@ function filterAddResidents(q) {
         ? _availResidents.filter(r => r.name.toLowerCase().includes(q.toLowerCase()))
         : _availResidents;
     const dd  = document.getElementById('addResidentDropdown');
-    const box = document.getElementById('addResidentBox');
     renderAddResidents(filtered);
-    const rect = box.getBoundingClientRect();
-    dd.style.top   = (rect.bottom + 2) + 'px';
-    dd.style.left  = rect.left + 'px';
-    dd.style.width = rect.width + 'px';
     dd.style.display = 'block';
     document.getElementById('addResidentId').value = '';
     document.getElementById('addResidentClear').style.display = q ? 'inline' : 'none';
@@ -831,10 +824,6 @@ function toggleAddRelDropdown() {
     const dd  = document.getElementById('addRelDropdown');
     const box = document.getElementById('addRelBox');
     if (dd.style.display === 'none' || !dd.style.display) {
-        const rect = box.getBoundingClientRect();
-        dd.style.top   = (rect.bottom + 2) + 'px';
-        dd.style.left  = rect.left + 'px';
-        dd.style.width = rect.width + 'px';
         dd.style.display = 'block';
         box.style.borderColor = '#3a7fa8';
         box.style.boxShadow   = '0 0 0 3px rgba(58,127,168,0.12)';
@@ -884,28 +873,6 @@ function submitAddMember() {
     if (!validateAddMember()) return;
     document.getElementById('addMemberForm').submit();
 }
-
-// ── Reposition fixed dropdowns on scroll/resize ──────────────────────────
-function repositionDropdowns() {
-    const resDd  = document.getElementById('addResidentDropdown');
-    const resBox = document.getElementById('addResidentBox');
-    const relDd  = document.getElementById('addRelDropdown');
-    const relBox = document.getElementById('addRelBox');
-    if (resDd && resDd.style.display !== 'none' && resBox) {
-        const r = resBox.getBoundingClientRect();
-        resDd.style.top = (r.bottom + 2) + 'px';
-        resDd.style.left = r.left + 'px';
-        resDd.style.width = r.width + 'px';
-    }
-    if (relDd && relDd.style.display !== 'none' && relBox) {
-        const r = relBox.getBoundingClientRect();
-        relDd.style.top = (r.bottom + 2) + 'px';
-        relDd.style.left = r.left + 'px';
-        relDd.style.width = r.width + 'px';
-    }
-}
-window.addEventListener('scroll', repositionDropdowns, true);
-window.addEventListener('resize', repositionDropdowns);
 
 // ── Remove member modal ───────────────────────────────────────────────────
 let _removeMemberModal = null;

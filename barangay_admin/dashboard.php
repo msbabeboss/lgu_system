@@ -223,7 +223,7 @@ $rRes->execute([$bid]); $recentResidents = $rRes->fetchAll();
 $rBlt = $db->prepare("SELECT * FROM blotter_cases WHERE barangay_id=? ORDER BY created_at DESC LIMIT 5");
 $rBlt->execute([$bid]); $recentBlotter = $rBlt->fetchAll();
 
-$notices = $db->query("SELECT * FROM notices ORDER BY created_at DESC LIMIT 3")->fetchAll();
+// Notices are loaded via AJAX after page paint (see get_notices_widget.php)
 
 ?>
 <?php
@@ -247,8 +247,8 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   .sidebar-brand{height:80px !important;}
 
   /* ── Section title ────────────────────────────────────── */
-  .sec-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
-  .sec-title::after{content:'';flex:1;height:1px;background:#334155;}
+  .sec-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#3a7fa8;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+  .sec-title::after{content:'';flex:1;height:1px;background:#d0e8f4;}
 
   /* ── Download buttons ─────────────────────────────────── */
   .dl-box{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:.78rem;font-weight:600;border:none;cursor:pointer;transition:opacity .15s,transform .12s;white-space:nowrap;}
@@ -256,28 +256,33 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   .dl-box-excel{background:#16a34a;color:#fff;}.dl-box-excel:hover{color:#fff;}
 
   /* ── KPI / stat cards ─────────────────────────────────── */
-  .pcard{border-radius:14px;padding:14px 14px 10px;display:flex;flex-direction:column;gap:9px;height:100%;transition:transform .15s,box-shadow .15s;border:1.5px solid rgba(255,255,255,0.08);box-shadow:0 2px 8px rgba(0,0,0,0.25);}
-  .pcard:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.35);}
+  .pcard{background:#fff;border-radius:14px;padding:14px 14px 10px;display:flex;flex-direction:column;gap:9px;height:100%;transition:transform .15s,box-shadow .15s;border:1.5px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+  .pcard:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.12);}
   .pcard-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem;}
-  .pcard-val{font-size:1.4rem;font-weight:800;color:#fff;line-height:1.1;}
-  .pcard-lbl{font-size:.7rem;color:rgba(255,255,255,0.75);font-weight:500;line-height:1.3;}
+  .pcard-val{font-size:1.4rem;font-weight:800;color:#0f172a;line-height:1.1;}
+  .pcard-lbl{font-size:.7rem;color:#64748b;font-weight:500;line-height:1.3;}
 
   /* ── Chart cards ──────────────────────────────────────── */
-  .chart-card{background:#1e293b;border:1.5px solid #334155;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.2);}
-  .chart-card .ch{padding:8px 14px;font-size:.75rem;font-weight:600;color:#e2e8f0;background:#0f172a;border-bottom:1.5px solid #334155;display:flex;align-items:center;gap:6px;justify-content:space-between;}
+  .chart-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+  .chart-card .ch{padding:8px 14px;font-size:.75rem;font-weight:600;color:#1e293b;background:#f8fafc;border-bottom:1.5px solid #e2e8f0;display:flex;align-items:center;gap:6px;justify-content:space-between;}
   .chart-card .cb{padding:10px 12px;}
 
   /* ── Table ────────────────────────────────────────────── */
-  .table{--bs-table-bg:transparent;--bs-table-color:#e2e8f0;--bs-table-border-color:#334155;}
-  .table th{font-size:.68rem;text-transform:uppercase;color:#94a3b8;font-weight:600;}
-  .table td{font-size:.75rem;color:#cbd5e1;}
+  .table th{font-size:.68rem;text-transform:uppercase;color:#64748b;font-weight:600;}
+  .table td{font-size:.75rem;color:#334155;}
   .badge{font-size:.63rem;}
   .btn-xs{padding:1px 7px;font-size:.7rem;}
 
   /* ── Page background ──────────────────────────────────── */
-  body{background:#0f172a;}
-  .main-content{background:#0f172a;}
+  body{background:#f0f6fb;}
+  .main-content{background:#f0f6fb;}
   html.dark-mode .welcome-banner{box-shadow:0 4px 20px rgba(0,0,0,0.5);}
+
+  /* ── Skeleton pulse animation ─────────────────────────── */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
 
   /* ── Welcome Banner ───────────────────────────────────── */
   .welcome-banner {
@@ -401,15 +406,15 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   </div>
 
   <!-- ③ KPI CARDS ROW 1 ───────────────────────────────── -->
-  <div class="sec-title"><i class="bi bi-grid-1x2-fill" style="color:#38bdf8"></i>Overview</div>
+  <div class="sec-title"><i class="bi bi-grid-1x2-fill text-primary"></i>Overview</div>
   <div class="row g-2 mb-3">
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/residents.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#1e3a5f">
+        <div class="pcard" style="background:#dbeafe">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#2d5a8e"><i class="bi bi-people-fill" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['residents']) ?></div><div class="pcard-lbl">Total Residents</div></div>
+            <div class="pcard-icon" style="background:#93c5fd"><i class="bi bi-people-fill" style="color:#1e40af"></i></div>
+            <div><div class="pcard-val" style="color:#1e3a8a;"><?= number_format($stats['residents']) ?></div><div class="pcard-lbl">Total Residents</div></div>
           </div>
         </div>
       </a>
@@ -417,10 +422,10 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/households.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#14532d">
+        <div class="pcard" style="background:#dcfce7">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#166534"><i class="bi bi-house-fill" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['households']) ?></div><div class="pcard-lbl">Total Households</div></div>
+            <div class="pcard-icon" style="background:#86efac"><i class="bi bi-house-fill" style="color:#166534"></i></div>
+            <div><div class="pcard-val" style="color:#14532d;"><?= number_format($stats['households']) ?></div><div class="pcard-lbl">Total Households</div></div>
           </div>
         </div>
       </a>
@@ -428,10 +433,10 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/blotter.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#7f1d1d">
+        <div class="pcard" style="background:#fee2e2">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#991b1b"><i class="bi bi-shield-exclamation" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['blotter']) ?></div><div class="pcard-lbl">Blotter Cases</div></div>
+            <div class="pcard-icon" style="background:#fca5a5"><i class="bi bi-shield-exclamation" style="color:#991b1b"></i></div>
+            <div><div class="pcard-val" style="color:#7f1d1d;"><?= number_format($stats['blotter']) ?></div><div class="pcard-lbl">Blotter Cases</div></div>
           </div>
         </div>
       </a>
@@ -439,10 +444,10 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/certificates.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#4c1d95">
+        <div class="pcard" style="background:#ede9fe">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#5b21b6"><i class="bi bi-file-earmark-check-fill" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['certs']) ?></div><div class="pcard-lbl">Certificates Issued</div></div>
+            <div class="pcard-icon" style="background:#c4b5fd"><i class="bi bi-file-earmark-check-fill" style="color:#5b21b6"></i></div>
+            <div><div class="pcard-val" style="color:#4c1d95;"><?= number_format($stats['certs']) ?></div><div class="pcard-lbl">Certificates Issued</div></div>
           </div>
         </div>
       </a>
@@ -450,10 +455,10 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/officials.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#1c3a2e">
+        <div class="pcard" style="background:#d1fae5">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#14532d"><i class="bi bi-person-badge-fill" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['officials_active']) ?></div><div class="pcard-lbl">Active Officials</div></div>
+            <div class="pcard-icon" style="background:#6ee7b7"><i class="bi bi-person-badge-fill" style="color:#065f46"></i></div>
+            <div><div class="pcard-val" style="color:#064e3b;"><?= number_format($stats['officials_active']) ?></div><div class="pcard-lbl">Active Officials</div></div>
           </div>
         </div>
       </a>
@@ -461,10 +466,10 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
     <div class="col-6 col-md-2">
       <a href="<?= BASE_URL ?>/barangay_admin/requests.php" style="text-decoration:none;">
-        <div class="pcard" style="background:#78350f">
+        <div class="pcard" style="background:#fef3c7">
           <div class="d-flex align-items-center gap-2">
-            <div class="pcard-icon" style="background:#92400e"><i class="bi bi-inbox-fill" style="color:#fff"></i></div>
-            <div><div class="pcard-val"><?= number_format($stats['requests_pending']) ?></div><div class="pcard-lbl">Pending Requests</div></div>
+            <div class="pcard-icon" style="background:#fcd34d"><i class="bi bi-inbox-fill" style="color:#92400e"></i></div>
+            <div><div class="pcard-val" style="color:#78350f;"><?= number_format($stats['requests_pending']) ?></div><div class="pcard-lbl">Pending Requests</div></div>
           </div>
         </div>
       </a>
@@ -476,37 +481,37 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   <div class="row g-2 mb-3">
 
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f">
+      <div class="pcard" style="background:#e0f2fe">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e"><i class="bi bi-person-check-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_active']) ?></div><div class="pcard-lbl">Active</div></div>
+          <div class="pcard-icon" style="background:#7dd3fc"><i class="bi bi-person-check-fill" style="color:#0c4a6e"></i></div>
+          <div><div class="pcard-val" style="color:#0c4a6e;"><?= number_format($stats['res_active']) ?></div><div class="pcard-lbl">Active</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e293b">
+      <div class="pcard" style="background:#f1f5f9">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#334155"><i class="bi bi-person-dash-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_inactive']) ?></div><div class="pcard-lbl">Inactive</div></div>
+          <div class="pcard-icon" style="background:#cbd5e1"><i class="bi bi-person-dash-fill" style="color:#475569"></i></div>
+          <div><div class="pcard-val" style="color:#334155;"><?= number_format($stats['res_inactive']) ?></div><div class="pcard-lbl">Inactive</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#1e3a5f">
+      <div class="pcard" style="background:#dbeafe">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e"><i class="bi bi-person-walking" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Transferred</div></div>
+          <div class="pcard-icon" style="background:#93c5fd"><i class="bi bi-person-walking" style="color:#1e40af"></i></div>
+          <div><div class="pcard-val" style="color:#1e3a8a;"><?= number_format($stats['res_transferred']) ?></div><div class="pcard-lbl">Transferred</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md-3">
-      <div class="pcard" style="background:#7f1d1d">
+      <div class="pcard" style="background:#fef2f2">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#991b1b"><i class="bi bi-person-x-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($stats['res_deceased']) ?></div><div class="pcard-lbl">Deceased</div></div>
+          <div class="pcard-icon" style="background:#fecaca"><i class="bi bi-person-x-fill" style="color:#991b1b"></i></div>
+          <div><div class="pcard-val" style="color:#7f1d1d;"><?= number_format($stats['res_deceased']) ?></div><div class="pcard-lbl">Deceased</div></div>
         </div>
       </div>
     </div>
@@ -514,14 +519,14 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   </div><!-- /row KPI row 2 -->
 
   <!-- ④ POPULATION OVERVIEW — compact ─────────────────── -->
-  <div class="sec-title mt-2"><i class="bi bi-graph-up" style="color:#38bdf8"></i>Population Overview — Last 12 Months</div>
+  <div class="sec-title mt-2"><i class="bi bi-graph-up text-primary"></i>Population Overview — Last 12 Months</div>
   <div class="row g-2 mb-3">
 
     <!-- LEFT: line chart -->
     <div class="col-md-7">
       <div class="chart-card h-100">
-        <div class="ch" style="background:#0f172a;">
-          <span><i class="bi bi-graph-up" style="color:#38bdf8"></i> New Residents — Last 12 Months</span>
+        <div class="ch">
+          <span><i class="bi bi-graph-up text-primary"></i> New Residents — Last 12 Months</span>
         </div>
         <div class="cb"><canvas id="popTrendChart" style="max-height:160px"></canvas></div>
       </div>
@@ -532,37 +537,37 @@ $pageSubtitle = 'Summary of barangay population and activity.';
       <div class="row g-2 h-100">
 
         <div class="col-6">
-          <div class="pcard" style="background:#5b21b6;height:100%">
+          <div class="pcard" style="background:#ede9fe;height:100%">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#6d28d9"><i class="bi bi-person-wheelchair" style="color:#fff"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['pwd']) ?></div><div class="pcard-lbl">PWD</div></div>
+              <div class="pcard-icon" style="background:#c4b5fd"><i class="bi bi-person-wheelchair" style="color:#5b21b6"></i></div>
+              <div><div class="pcard-val" style="color:#4c1d95;"><?= number_format($stats['pwd']) ?></div><div class="pcard-lbl">PWD</div></div>
             </div>
           </div>
         </div>
 
         <div class="col-6">
-          <div class="pcard" style="background:#9a3412;height:100%">
+          <div class="pcard" style="background:#ffedd5;height:100%">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#c2410c"><i class="bi bi-person-fill" style="color:#fff"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['senior']) ?></div><div class="pcard-lbl">Senior Citizens</div></div>
+              <div class="pcard-icon" style="background:#fdba74"><i class="bi bi-person-fill" style="color:#9a3412"></i></div>
+              <div><div class="pcard-val" style="color:#7c2d12;"><?= number_format($stats['senior']) ?></div><div class="pcard-lbl">Senior Citizens</div></div>
             </div>
           </div>
         </div>
 
         <div class="col-6">
-          <div class="pcard" style="background:#9d174d;height:100%">
+          <div class="pcard" style="background:#fce7f3;height:100%">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#be185d"><i class="bi bi-person-heart" style="color:#fff"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['solo']) ?></div><div class="pcard-lbl">Solo Parents</div></div>
+              <div class="pcard-icon" style="background:#f9a8d4"><i class="bi bi-person-heart" style="color:#9d174d"></i></div>
+              <div><div class="pcard-val" style="color:#831843;"><?= number_format($stats['solo']) ?></div><div class="pcard-lbl">Solo Parents</div></div>
             </div>
           </div>
         </div>
 
         <div class="col-6">
-          <div class="pcard" style="background:#065f46;height:100%">
+          <div class="pcard" style="background:#d1fae5;height:100%">
             <div class="d-flex align-items-center gap-2">
-              <div class="pcard-icon" style="background:#047857"><i class="bi bi-heart-fill" style="color:#fff"></i></div>
-              <div><div class="pcard-val"><?= number_format($stats['4ps']) ?></div><div class="pcard-lbl">4Ps Beneficiaries</div></div>
+              <div class="pcard-icon" style="background:#6ee7b7"><i class="bi bi-heart-fill" style="color:#065f46"></i></div>
+              <div><div class="pcard-val" style="color:#064e3b;"><?= number_format($stats['4ps']) ?></div><div class="pcard-lbl">4Ps Beneficiaries</div></div>
             </div>
           </div>
         </div>
@@ -572,41 +577,7 @@ $pageSubtitle = 'Summary of barangay population and activity.';
 
   </div><!-- /Population Overview -->
 
-  <!-- ⑤ QUICK LINKS ───────────────────────────────────── -->
-  <div class="sec-title mt-2"><i class="bi bi-lightning-charge-fill" style="color:#fbbf24"></i>Quick Links</div>
-  <div class="row g-2 mb-3">
-    <?php
-    $quickLinks = [
-      ['label'=>'Residents',     'icon'=>'bi-people-fill',                'url'=>BASE_URL.'/barangay_admin/residents.php'],
-      ['label'=>'Households',    'icon'=>'bi-house-fill',                 'url'=>BASE_URL.'/barangay_admin/households.php'],
-      ['label'=>'Officials',     'icon'=>'bi-person-badge-fill',          'url'=>BASE_URL.'/barangay_admin/officials.php'],
-      ['label'=>'Certificates',  'icon'=>'bi-file-earmark-text-fill',     'url'=>BASE_URL.'/barangay_admin/certificates.php'],
-      ['label'=>'Blotter',       'icon'=>'bi-shield-exclamation',         'url'=>BASE_URL.'/barangay_admin/blotter.php'],
-      ['label'=>'Reports',       'icon'=>'bi-file-earmark-bar-graph-fill','url'=>BASE_URL.'/barangay_admin/reports.php'],
-      ['label'=>'Notifications', 'icon'=>'bi-bell-fill',                  'url'=>BASE_URL.'/barangay_admin/notifications.php'],
-      ['label'=>'Announcements', 'icon'=>'bi-megaphone-fill',             'url'=>BASE_URL.'/barangay_admin/notices.php'],
-      ['label'=>'Activity Log',  'icon'=>'bi-clock-history',              'url'=>BASE_URL.'/barangay_admin/activity_log.php'],
-      ['label'=>'Requests',      'icon'=>'bi-inbox-fill',                 'url'=>BASE_URL.'/barangay_admin/requests.php'],
-      ['label'=>'Analytics',     'icon'=>'bi-bar-chart-line-fill',        'url'=>BASE_URL.'/barangay_admin/analytics.php'],
-      ['label'=>'Forecasting',   'icon'=>'bi-cpu-fill',                   'url'=>BASE_URL.'/barangay_admin/forecasting.php'],
-    ];
-    foreach ($quickLinks as $ql): ?>
-    <div class="col-6 col-sm-4 col-md-3 col-lg-2">
-      <a href="<?= $ql['url'] ?>" style="text-decoration:none;display:block;height:100%;">
-        <div style="background:#1e293b;border-radius:12px;padding:14px 12px;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:85px;height:100%;transition:background .15s,transform .15s;border:1.5px solid #334155;justify-content:center;gap:8px;"
-             onmouseover="this.style.background='#0f172a';this.style.transform='translateY(-2px)';"
-             onmouseout="this.style.background='#1e293b';this.style.transform='translateY(0)';">
-          <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <i class="bi <?= $ql['icon'] ?>" style="color:#fff;font-size:1.1rem;"></i>
-          </div>
-          <div style="font-size:.72rem;font-weight:700;color:#e2e8f0;line-height:1.2;"><?= $ql['label'] ?></div>
-        </div>
-      </a>
-    </div>
-    <?php endforeach; ?>
-  </div><!-- /Quick Links -->
-
-  <!-- ⑥ RECENT ACTIVITIES ─────────────────────────────── -->
+  <!-- ⑤ RECENT ACTIVITIES ─────────────────────────────── -->
   <div class="sec-title mt-2"><i class="bi bi-clock-history" style="color:#38bdf8"></i>Recent Activities</div>
   <div class="row g-2 mb-2">
 
@@ -675,57 +646,57 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   </div><!-- /recent 2-col -->
 
   <!-- Pending Requests mini banner -->
-  <div class="mb-3" style="background:#78350f;color:#fff;border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-    <i class="bi bi-inbox-fill" style="font-size:1rem;"></i>
-    <span style="font-size:.82rem;">Pending Requests: <strong><?= number_format($stats['requests_pending']) ?></strong></span>
-    <a href="<?= BASE_URL ?>/barangay_admin/requests.php" style="color:#fcd34d;font-size:.78rem;font-weight:600;margin-left:auto;">View All →</a>
+  <div class="mb-3" style="background:#fef3c7;border:1.5px solid #fcd34d;color:#78350f;border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <i class="bi bi-inbox-fill" style="font-size:1rem;color:#92400e;"></i>
+    <span style="font-size:.82rem;font-weight:600;">Pending Requests: <strong><?= number_format($stats['requests_pending']) ?></strong></span>
+    <a href="<?= BASE_URL ?>/barangay_admin/requests.php" style="color:#92400e;font-size:.78rem;font-weight:700;margin-left:auto;">View All →</a>
   </div>
 
   <!-- ⑦ BLOTTER STATUS BREAKDOWN ───────────────────────── -->
-  <div class="sec-title mt-2"><i class="bi bi-shield-fill-exclamation" style="color:#f87171"></i>Blotter Status Breakdown</div>
+  <div class="sec-title mt-2"><i class="bi bi-shield-fill-exclamation text-danger"></i>Blotter Status Breakdown</div>
   <div class="row g-2 mb-3">
 
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#78350f">
+      <div class="pcard" style="background:#fef3c7;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#92400e"><i class="bi bi-exclamation-circle-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Open']) ?></div><div class="pcard-lbl">Open</div></div>
+          <div class="pcard-icon" style="background:#fcd34d;"><i class="bi bi-exclamation-circle-fill" style="color:#92400e;"></i></div>
+          <div><div class="pcard-val" style="color:#78350f;"><?= number_format($blotterStatusCounts['Open']) ?></div><div class="pcard-lbl">Open</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#1e3a5f">
+      <div class="pcard" style="background:#dbeafe;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#2d5a8e"><i class="bi bi-search" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Under Investigation']) ?></div><div class="pcard-lbl">Under Investigation</div></div>
+          <div class="pcard-icon" style="background:#93c5fd;"><i class="bi bi-search" style="color:#1e40af;"></i></div>
+          <div><div class="pcard-val" style="color:#1e3a8a;"><?= number_format($blotterStatusCounts['Under Investigation']) ?></div><div class="pcard-lbl">Under Investigation</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#14532d">
+      <div class="pcard" style="background:#dcfce7;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#166534"><i class="bi bi-check-circle-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Settled']) ?></div><div class="pcard-lbl">Settled</div></div>
+          <div class="pcard-icon" style="background:#86efac;"><i class="bi bi-check-circle-fill" style="color:#166534;"></i></div>
+          <div><div class="pcard-val" style="color:#14532d;"><?= number_format($blotterStatusCounts['Settled']) ?></div><div class="pcard-lbl">Settled</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#7f1d1d">
+      <div class="pcard" style="background:#fee2e2;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#991b1b"><i class="bi bi-arrow-up-circle-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Escalated']) ?></div><div class="pcard-lbl">Escalated</div></div>
+          <div class="pcard-icon" style="background:#fca5a5;"><i class="bi bi-arrow-up-circle-fill" style="color:#991b1b;"></i></div>
+          <div><div class="pcard-val" style="color:#7f1d1d;"><?= number_format($blotterStatusCounts['Escalated']) ?></div><div class="pcard-lbl">Escalated</div></div>
         </div>
       </div>
     </div>
 
     <div class="col-6 col-md">
-      <div class="pcard" style="background:#1e293b">
+      <div class="pcard" style="background:#f1f5f9;">
         <div class="d-flex align-items-center gap-2">
-          <div class="pcard-icon" style="background:#334155"><i class="bi bi-lock-fill" style="color:#fff"></i></div>
-          <div><div class="pcard-val"><?= number_format($blotterStatusCounts['Closed']) ?></div><div class="pcard-lbl">Closed</div></div>
+          <div class="pcard-icon" style="background:#cbd5e1;"><i class="bi bi-lock-fill" style="color:#475569;"></i></div>
+          <div><div class="pcard-val" style="color:#334155;"><?= number_format($blotterStatusCounts['Closed']) ?></div><div class="pcard-lbl">Closed</div></div>
         </div>
       </div>
     </div>
@@ -733,27 +704,27 @@ $pageSubtitle = 'Summary of barangay population and activity.';
   </div><!-- /blotter status breakdown -->
 
   <!-- ⑧ ANNOUNCEMENTS & REPORTS OVERVIEW ──────────────── -->
-  <div class="sec-title mt-2"><i class="bi bi-megaphone-fill" style="color:#fbbf24"></i>Announcements &amp; Reports Overview</div>
+  <div class="sec-title mt-2"><i class="bi bi-megaphone-fill text-warning"></i>Announcements &amp; Reports Overview</div>
   <div class="row g-2 mb-3">
 
-    <!-- Latest LGU Notices -->
+    <!-- Latest LGU Notices (loaded via AJAX) -->
     <div class="col-md-6">
       <div class="chart-card h-100">
         <div class="ch">
-          <span><i class="bi bi-megaphone-fill" style="color:#fbbf24"></i> Latest LGU Notices</span>
+          <span><i class="bi bi-megaphone-fill text-warning"></i> Latest LGU Notices</span>
         </div>
-        <div class="cb">
-          <?php if (!empty($notices)): ?>
-            <?php foreach ($notices as $n): ?>
-            <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #334155;">
-              <div class="fw-semibold" style="font-size:.8rem;color:#e2e8f0;"><?= htmlspecialchars($n['title']) ?></div>
-              <div style="font-size:.65rem;color:#94a3b8;margin-bottom:3px;"><?= date('M d, Y', strtotime($n['created_at'])) ?></div>
-              <div style="font-size:.72rem;color:#94a3b8;"><?= htmlspecialchars(substr($n['content'], 0, 80)) ?><?= strlen($n['content']) > 80 ? '…' : '' ?></div>
+        <div class="cb" id="notices-container">
+          <!-- Skeleton placeholder shown while AJAX loads -->
+          <div id="notices-skeleton">
+            <?php for ($i = 0; $i < 3; $i++): ?>
+            <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;">
+              <div style="height:12px;background:#e2e8f0;border-radius:4px;width:70%;margin-bottom:6px;animation:pulse 1.4s ease-in-out infinite;"></div>
+              <div style="height:9px;background:#e2e8f0;border-radius:4px;width:35%;margin-bottom:6px;animation:pulse 1.4s ease-in-out infinite;"></div>
+              <div style="height:9px;background:#e2e8f0;border-radius:4px;width:90%;animation:pulse 1.4s ease-in-out infinite;"></div>
             </div>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <p style="font-size:.78rem;color:#64748b;text-align:center;margin:16px 0;">No announcements yet.</p>
-          <?php endif; ?>
+            <?php endfor; ?>
+          </div>
+          <div id="notices-content" style="display:none;"></div>
         </div>
       </div>
     </div>
@@ -762,25 +733,25 @@ $pageSubtitle = 'Summary of barangay population and activity.';
     <div class="col-md-6">
       <div class="chart-card h-100">
         <div class="ch">
-          <span><i class="bi bi-bar-chart-line-fill" style="color:#38bdf8"></i> This Month — Quick Stats</span>
-          <a href="<?= BASE_URL ?>/barangay_admin/reports.php" style="color:#38bdf8;font-size:.7rem;font-weight:600;">Full Report →</a>
+          <span><i class="bi bi-bar-chart-line-fill text-primary"></i> This Month — Quick Stats</span>
+          <a href="<?= BASE_URL ?>/barangay_admin/reports.php" style="color:#2563eb;font-size:.7rem;font-weight:600;">Full Report →</a>
         </div>
         <div class="cb">
-          <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
 
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;">
-              <span style="font-size:.78rem;color:#cbd5e1;"><i class="bi bi-people-fill me-2" style="color:#38bdf8"></i>New Residents this month</span>
-              <strong style="font-size:.95rem;color:#fff;"><?= number_format($rpt_new_residents) ?></strong>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#dbeafe;border-radius:8px;">
+              <span style="font-size:.78rem;color:#1e3a8a;font-weight:500;"><i class="bi bi-people-fill me-2" style="color:#1e40af;"></i>New Residents this month</span>
+              <strong style="font-size:1.1rem;color:#1e40af;"><?= number_format($rpt_new_residents) ?></strong>
             </div>
 
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;">
-              <span style="font-size:.78rem;color:#cbd5e1;"><i class="bi bi-file-earmark-check-fill me-2" style="color:#a78bfa"></i>Certificates this month</span>
-              <strong style="font-size:.95rem;color:#fff;"><?= number_format($rpt_docs_issued) ?></strong>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#ede9fe;border-radius:8px;">
+              <span style="font-size:.78rem;color:#4c1d95;font-weight:500;"><i class="bi bi-file-earmark-check-fill me-2" style="color:#5b21b6;"></i>Certificates this month</span>
+              <strong style="font-size:1.1rem;color:#5b21b6;"><?= number_format($rpt_docs_issued) ?></strong>
             </div>
 
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;">
-              <span style="font-size:.78rem;color:#cbd5e1;"><i class="bi bi-shield-exclamation me-2" style="color:#f87171"></i>Blotter Cases this month</span>
-              <strong style="font-size:.95rem;color:#fff;"><?= number_format($rpt_blotter) ?></strong>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:#fee2e2;border-radius:8px;">
+              <span style="font-size:.78rem;color:#7f1d1d;font-weight:500;"><i class="bi bi-shield-exclamation me-2" style="color:#991b1b;"></i>Blotter Cases this month</span>
+              <strong style="font-size:1.1rem;color:#991b1b;"><?= number_format($rpt_blotter) ?></strong>
             </div>
 
           </div>
@@ -810,9 +781,9 @@ document.addEventListener('DOMContentLoaded', function() {
       datasets: [{
         label: 'New Residents',
         data: <?= json_encode($popValues) ?>,
-        borderColor: '#38bdf8',
-        backgroundColor: 'rgba(56,189,248,0.12)',
-        pointBackgroundColor: '#38bdf8',
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37,99,235,0.08)',
+        pointBackgroundColor: '#2563eb',
         tension: 0.4,
         fill: true,
         pointRadius: 4
@@ -822,8 +793,8 @@ document.addEventListener('DOMContentLoaded', function() {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { font: { size: 10 }, color: '#94a3b8' }, grid: { color: '#1e293b' } },
-        y: { ticks: { font: { size: 10 }, color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: true }
+        x: { ticks: { font: { size: 10 }, color: '#64748b' }, grid: { color: '#f1f5f9' } },
+        y: { ticks: { font: { size: 10 }, color: '#64748b' }, grid: { color: '#f1f5f9' }, beginAtZero: true }
       }
     }
   });
@@ -862,6 +833,48 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     tick();
     setInterval(tick, 1000);
+  })();
+
+  // ── Load Announcements via AJAX ──────────────────────────
+  (function() {
+    fetch('<?= BASE_URL ?>/ajax/get_notices_widget.php', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var skeleton = document.getElementById('notices-skeleton');
+        var content  = document.getElementById('notices-content');
+        if (!skeleton || !content) return;
+
+        if (data.success && data.notices && data.notices.length > 0) {
+          var html = '';
+          data.notices.forEach(function(n, i) {
+            var border = i < data.notices.length - 1
+              ? 'margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e2e8f0;'
+              : '';
+            html += '<div style="' + border + '">'
+              + '<div class="fw-semibold" style="font-size:.8rem;color:#0f172a;">' + escHtml(n.title) + '</div>'
+              + '<div style="font-size:.65rem;color:#64748b;margin-bottom:3px;">' + n.date + '</div>'
+              + '<div style="font-size:.72rem;color:#334155;">' + escHtml(n.excerpt) + '</div>'
+              + '</div>';
+          });
+          content.innerHTML = html;
+        } else {
+          content.innerHTML = '<p style="font-size:.78rem;color:#64748b;text-align:center;margin:16px 0;">No announcements yet.</p>';
+        }
+
+        skeleton.style.display = 'none';
+        content.style.display  = 'block';
+      })
+      .catch(function() {
+        var skeleton = document.getElementById('notices-skeleton');
+        var content  = document.getElementById('notices-content');
+        if (skeleton) skeleton.style.display = 'none';
+        if (content)  { content.innerHTML = '<p style="font-size:.78rem;color:#94a3b8;text-align:center;margin:16px 0;">Could not load announcements.</p>'; content.style.display = 'block'; }
+      });
+
+    function escHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
   })();
 
 }); // end DOMContentLoaded

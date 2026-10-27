@@ -66,7 +66,7 @@ function baSaveSetting(PDO $db, string $key, string $val, int $userId): void {
 
 // ── Active tab ─────────────────────────────────────────────
 $tab = $_GET['tab'] ?? 'profile';
-$validTabs = ['profile','security','archive','authenticator','preferences'];
+$validTabs = ['profile','security','archive','authenticator'];
 if (!in_array($tab, $validTabs)) $tab = 'profile';
 
 $isFrame = isset($_GET['frame']) && $_GET['frame'] === '1';
@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!empty($_FILES['profile_photo']['name']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
             $file    = $_FILES['profile_photo'];
             $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg','jpeg','png','gif','webp'];
+            $allowed = ['jpg','jpeg','jfif','png','gif','webp'];
             $finfo   = finfo_open(FILEINFO_MIME_TYPE);
             $mime    = finfo_file($finfo, $file['tmp_name']);
             finfo_close($finfo);
@@ -345,22 +345,22 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     <link rel="icon" type="image/png" href="<?= BASE_URL ?>/assets/img/favcon.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="csrf-token" content="<?= htmlspecialchars(getCsrfToken()) ?>">
+    <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken()) ?>">
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
     <style>
         .main-content { animation: none !important; contain: none !important; padding: 20px 24px 0 22px !important; overflow: hidden; }
-        .settings-shell-wrap { display: flex; gap: 24px; align-items: flex-start; height: calc(100vh - var(--topbar-height, 64px) - 20px); overflow-y: auto; }
-        .settings-sidebar { width: 220px; min-width: 220px; flex-shrink: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; padding: 12px 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); align-self: flex-start; position: sticky; top: 0; max-height: calc(100vh - var(--topbar-height, 64px) - 20px); overflow-y: auto; transform: translateZ(0); backface-visibility: hidden; isolation: isolate; }
+        .settings-shell-wrap { display: flex; gap: 24px; align-items: flex-start; height: calc(100vh - var(--topbar-height, 80px) - 20px); overflow-y: auto; }
+        .settings-sidebar { width: 220px; min-width: 220px; flex-shrink: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; padding: 12px 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); align-self: flex-start; position: sticky; top: 0; max-height: calc(100vh - var(--topbar-height, 80px) - 20px); overflow-y: auto; transform: translateZ(0); backface-visibility: hidden; isolation: isolate; }
         .settings-sidebar .s-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #3a7fa8; padding: 6px 12px 4px; }
         .settings-sidebar .s-link { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 10px; font-size: 0.875rem; font-weight: 500; color: #2a5070; text-decoration: none; transition: background 0.15s, color 0.15s; margin-bottom: 2px; }
         .settings-sidebar .s-link i { font-size: 1rem; width: 20px; text-align: center; }
         .settings-sidebar .s-link:hover { background: rgba(26,79,122,0.07); color: #1a4f7a; }
         .settings-sidebar .s-link.active { background: linear-gradient(90deg, #1a4f7a 0%, #3a7fa8 100%); color: #fff; box-shadow: 0 3px 10px rgba(26,79,122,0.25); }
         .settings-sidebar .s-link.active i { color: #fff; }
-        #settingsFrame { flex: 1; border: none; min-width: 0; width: 100%; height: calc(100vh - var(--topbar-height, 64px) - 20px); background: transparent; display: block; overflow: hidden; }
+        #settingsFrame { flex: 1; border: none; min-width: 0; width: 100%; height: calc(100vh - var(--topbar-height, 80px) - 20px); background: transparent; display: block; overflow: hidden; }
         @media (max-width: 768px) { .settings-shell-wrap { flex-direction: column; height: auto; } .settings-sidebar { position: static; width: 100%; max-height: unset; } #settingsFrame { height: 80vh; } }
     </style>
 </head>
@@ -375,9 +375,8 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
             $shellNavItems = [
                 'profile'       => ['bi-person-fill',       'Profile'],
                 'security'      => ['bi-shield-lock-fill',  'Security'],
-                'archive'       => ['bi-archive-fill',       'Archive'],
+                'archive'       => ['bi-archive-fill',      'Archive'],
                 'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
-                'preferences'   => ['bi-bell-fill',         'Preferences'],
             ];
             foreach ($shellNavItems as $t => [$icon, $label]):
             ?>
@@ -396,8 +395,7 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
         <iframe id="settingsFrame"
                 src="<?= BASE_URL ?>/barangay_admin/settings.php?tab=<?= urlencode($curTab) ?>&frame=1"
                 frameborder="0"
-                allowtransparency="true"
-                scrolling="no">
+                scrolling="yes">
         </iframe>
     </div>
 </div>
@@ -686,6 +684,9 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
         body { background: transparent !important; overflow-x: hidden; overflow-y: auto; }
         .sidebar, .topbar { display: none !important; }
         .main-content { margin-left: 0 !important; margin-top: 0 !important; padding: 20px 22px 32px 22px !important; min-height: 100vh; background: transparent !important; overflow: visible !important; }
+        .settings-sidebar { display: none !important; }
+        .settings-wrap { display: block !important; }
+        .settings-content { display: block !important; margin-left: 0 !important; }
         <?php endif; ?>
     </style>
 </head>
@@ -760,7 +761,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                             <?= csrfField() ?>
                             <!-- Hidden file input — triggered by the pencil button -->
                             <input type="file" name="profile_photo" id="profilePhotoInput"
-                                   accept="image/jpeg,image/png,image/gif,image/webp"
+                                   accept="image/jpeg,.jfif,image/png,image/gif,image/webp"
                                    style="display:none;"
                                    onchange="autoSubmitPhoto(this)">
 
@@ -908,77 +909,6 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
             </div>
             <?php endif; ?>
 
-            <!-- Barangay Logo Upload -->
-            <div class="settings-card">
-                <div class="sc-header">
-                    <div class="sc-icon" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">
-                        <i class="bi bi-image-fill"></i>
-                    </div>
-                    <div>
-                        <h6>Barangay Logo</h6>
-                        <p>Upload an official logo used on certificates and reports</p>
-                    </div>
-                </div>
-                <div class="sc-body">
-
-                    <?php
-                    $logoPath = $brgy['logo_path'] ?? '';
-                    $logoUrl  = $logoPath ? UPLOAD_URL . 'barangay_logos/' . $logoPath : '';
-                    ?>
-
-                    <!-- Current logo preview -->
-                    <div class="d-flex align-items-center gap-4 mb-4 p-3 rounded-3" style="background:rgba(124,58,237,0.05);border:1px dashed rgba(124,58,237,0.25);">
-                        <div id="logoPreviewWrap" style="width:90px;height:90px;border-radius:12px;overflow:hidden;background:#f1f5f9;border:2px solid rgba(124,58,237,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                            <?php if ($logoUrl): ?>
-                                <img id="logoPreview" src="<?= htmlspecialchars($logoUrl) ?>" alt="Barangay Logo"
-                                     style="width:100%;height:100%;object-fit:contain;">
-                            <?php else: ?>
-                                <img id="logoPreview" src="" alt="" style="width:100%;height:100%;object-fit:contain;display:none;">
-                                <i id="logoPlaceholder" class="bi bi-image" style="font-size:2rem;color:#cbd5e1;"></i>
-                            <?php endif; ?>
-                        </div>
-                        <div>
-                            <div class="fw-semibold" style="font-size:0.88rem;">
-                                <?= $logoPath ? htmlspecialchars($logoPath) : 'No logo uploaded yet' ?>
-                            </div>
-                            <div class="text-muted mt-1" style="font-size:0.75rem;">
-                                Accepted: JPG, PNG, WEBP, GIF &nbsp;·&nbsp; Max size: 2 MB
-                            </div>
-                            <?php if ($logoPath): ?>
-                            <form method="POST" class="mt-2" onsubmit="return confirm('Remove the current logo?');">
-                                <input type="hidden" name="action" value="save_barangay_logo">
-                                <input type="hidden" name="remove_logo" value="1">
-                                <?= csrfField() ?>
-                                <button type="submit" class="btn btn-sm btn-outline-danger" style="border-radius:6px;font-size:0.75rem;">
-                                    <i class="bi bi-trash3 me-1"></i>Remove Logo
-                                </button>
-                            </form>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Upload form -->
-                    <form method="POST" enctype="multipart/form-data">
-                        <input type="hidden" name="action" value="save_barangay_logo">
-                        <?= csrfField() ?>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold small">Upload New Logo</label>
-                            <div class="input-group">
-                                <input type="file" name="barangay_logo" id="barangayLogoInput"
-                                       class="form-control" accept="image/jpeg,image/png,image/gif,image/webp"
-                                       onchange="previewLogo(this)">
-                                <button type="submit" class="btn btn-primary fw-semibold px-4" style="border-radius:0 8px 8px 0;">
-                                    <i class="bi bi-cloud-upload-fill me-1"></i>Upload
-                                </button>
-                            </div>
-                            <div id="logoSizeErr" class="text-danger mt-1" style="display:none;font-size:0.72rem;"></div>
-                            <div class="form-text">The logo will appear on printed certificates.</div>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
 <?php endif; /* end profile tab */ ?>
 
 <?php /* ══════════════════════════════════════════
@@ -1024,10 +954,10 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                                 <div class="form-text">How long the account stays locked (30–86400 sec)</div>
                             </div>
                         </div>
-                        <div class="alert d-flex align-items-center gap-2 mt-3 mb-0 py-2 px-3"
-                             style="background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);border-radius:10px;font-size:0.8rem;color:#991b1b;">
-                            <i class="bi bi-lock-fill flex-shrink-0"></i>
-                            These limits apply to all users in this barangay. Once the limit is reached, the account is locked and <strong>cannot be automatically unlocked</strong> — the user must contact the LGU Admin to restore access.
+                        <div class="alert d-flex align-items-start gap-2 mt-3 mb-0 py-2 px-3"
+                             style="background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);border-radius:10px;font-size:0.8rem;color:#991b1b;white-space:normal;word-break:break-word;">
+                            <i class="bi bi-lock-fill flex-shrink-0 mt-1"></i>
+                            <span>These limits apply to all users in this barangay. Once the limit is reached, the account is locked and <strong>cannot be automatically unlocked</strong> — the user must contact the LGU Admin to restore access.</span>
                         </div>
                     </div>
                 </div>
@@ -1266,7 +1196,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
     $twoFaUser    = $twoFaRow->fetch();
     $is2FAEnabled = (bool)($twoFaUser['two_fa_enabled'] ?? 0);
     $hasSecret    = !empty($twoFaUser['totp_secret']);
-    $qrUrl        = $hasSecret ? TOTP::getQRCodeUrl($twoFaUser['totp_secret'], $twoFaUser['email'], APP_NAME) : null;
+    $qrDataUri    = $hasSecret ? TOTP::getQRCodeDataUri($twoFaUser['totp_secret'], $twoFaUser['email'], APP_NAME) : null;
 ?>
 
             <!-- Status Card -->
@@ -1326,7 +1256,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                     <!-- Secret generated — show QR + verify form -->
                     <div class="row g-4 align-items-center">
                         <div class="col-md-5 text-center">
-                            <img src="<?= $qrUrl ?>" alt="QR Code"
+                            <img src="<?= htmlspecialchars($qrDataUri, ENT_QUOTES, 'UTF-8') ?>" alt="QR Code"
                                  class="img-fluid rounded border p-2" style="max-width:200px;">
                             <div class="mt-2 small text-muted">Scan with Google Authenticator,<br>Authy, or Microsoft Authenticator</div>
                         </div>

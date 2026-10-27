@@ -153,10 +153,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Warn on duplicate full name (soft check — still allows save)
-        $dupCheck = $db->prepare("SELECT COUNT(*) FROM users WHERE first_name=? AND last_name=?");
-        $dupCheck->execute([$fname, $lname]);
-        $dupCount = (int)$dupCheck->fetchColumn();
+        // A full name must be unique; matching only one or two name parts is allowed.
+        $dupCheck = $db->prepare("
+            SELECT COUNT(*) FROM users
+            WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM(?))
+              AND LOWER(TRIM(COALESCE(middle_name, ''))) = LOWER(TRIM(?))
+              AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM(?))
+        ");
+        $dupCheck->execute([$fname, $mname, $lname]);
+        if ((int)$dupCheck->fetchColumn() > 0) {
+            flash('users', 'A user with the same first, middle, and last name already exists. Please check the full name.', 'danger');
+            redirect(BASE_URL . '/super_admin/users.php');
+        }
 
         // Hard check: username must be unique
         $uniqCheck = $db->prepare("SELECT COUNT(*) FROM users WHERE username=?");
@@ -205,11 +213,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Send welcome email with the set-password link
         if ($email) {
             sendWelcomeEmail($email, "$fname $lname", $username, EMAIL_BASE_URL . '/home.php?reset_token=' . $token, $role);
-            $dupNote = $dupCount > 0 ? " <span class='badge bg-warning text-dark ms-2'><i class='bi bi-exclamation-triangle me-1'></i>Note: another user with this name already exists.</span>" : '';
-            flash('users', "User <strong>$username</strong> created! A set-password link has been sent to <strong>$email</strong>.$dupNote", 'success');
+            flash('users', "User <strong>$username</strong> created! A set-password link has been sent to <strong>$email</strong>.", 'success');
         } else {
-            $dupNote = $dupCount > 0 ? " <span class='badge bg-warning text-dark ms-2'><i class='bi bi-exclamation-triangle me-1'></i>Note: another user with this name already exists.</span>" : '';
-            flash('users', "User created! Username: <strong>$username</strong> | Temp Password: <strong>$rawPass</strong> (No email — share manually.)$dupNote", 'success');
+            flash('users', "User created! Username: <strong>$username</strong> | Temp Password: <strong>$rawPass</strong> (No email — share manually.)", 'success');
         }
         redirect(BASE_URL . '/super_admin/users.php');
     }
@@ -430,29 +436,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(BASE_URL . '/super_admin/users.php');
     }
 
-    if ($action === 'delete_user') {
-        $id = (int)$_POST['user_id'];
-        $confirmPass = $_POST['confirm_password'] ?? '';
-
-        // Fetch the super admin's own record to verify password
-        $selfStmt = $db->prepare("SELECT password FROM users WHERE id=?");
-        $selfStmt->execute([$u['id']]);
-        $selfRow = $selfStmt->fetch();
-
-        if (!$selfRow || !password_verify($confirmPass, $selfRow['password'])) {
-            flash('users', 'Incorrect password. Deletion cancelled.', 'danger');
-            redirect(BASE_URL . '/super_admin/users.php');
-        }
-
-        $delU = $db->prepare("SELECT first_name, last_name FROM users WHERE id=?");
-        $delU->execute([$id]); $du = $delU->fetch();
-        $duName = trim(($du['first_name'] ?? '') . ' ' . ($du['last_name'] ?? '')) ?: "User #$id";
-        $db->prepare("DELETE FROM archives WHERE table_name='users' AND record_id=?")->execute([$id]);
-        $db->prepare("DELETE FROM users WHERE id=?")->execute([$id]);
-        logActivity($u['id'], 'DELETE_USER', 'Users', "Permanently deleted account of $duName");
-        flash('users', 'User permanently deleted.', 'success');
-        redirect(BASE_URL . '/super_admin/users.php');
-    }
 }
 
 // Safe migrations for barangay address fields
@@ -494,6 +477,11 @@ $query = "SELECT u.*, b.barangay_name, b.region AS brgy_region, b.province AS br
 if ($search) $query .= " AND (u.first_name LIKE '%$search%' OR u.last_name LIKE '%$search%' OR u.username LIKE '%$search%' OR u.email LIKE '%$search%')";
 $query .= " ORDER BY u.role='super_admin' DESC, u.created_at DESC";
 $users = $db->query($query)->fetchAll();
+$existingUsernames = array_map('strtolower', $db->query("SELECT username FROM users")->fetchAll(PDO::FETCH_COLUMN));
+$existingFullNames = $db->query("
+    SELECT first_name, middle_name, last_name
+    FROM users
+")->fetchAll(PDO::FETCH_ASSOC);
 
 $barangays = $db->query("SELECT * FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
 $flash = getFlash('users');
@@ -555,26 +543,6 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
 
 <div class="main-content">
 
-    <!-- Toolbar: Search + Add User -->
-    <div class="d-flex align-items-center justify-content-end mb-3 flex-wrap gap-2">
-        <form method="get" class="d-flex" style="gap:6px;">
-            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>"
-                   class="form-control form-control-sm" placeholder="Search users…"
-                   style="min-width:180px;border-radius:8px;font-size:0.82rem;">
-            <button class="btn btn-sm btn-outline-secondary" type="submit" style="border-radius:8px;">
-                <i class="bi bi-search"></i>
-            </button>
-            <?php if ($search): ?>
-                <a href="users.php" class="btn btn-sm btn-outline-danger" style="border-radius:8px;" title="Clear search">
-                    <i class="bi bi-x"></i>
-                </a>
-            <?php endif; ?>
-        </form>
-        <button class="btn btn-sm btn-success fw-semibold" data-bs-toggle="modal" data-bs-target="#addUserModal">
-            <i class="bi bi-person-plus-fill me-1"></i>Add User
-        </button>
-    </div>
-
     <?php if ($flash): ?>
         <div class="alert alert-<?= $flash['type'] ?> alert-dismissible fade show">
             <?= $flash['message'] ?> <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -605,7 +573,8 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <?php endif; ?>
 
     <!-- Summary Cards -->
-    <div class="d-flex gap-3 mb-3 flex-wrap justify-content-center">
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
         <div style="background:#fff;border-radius:14px;padding:12px 20px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:12px;min-width:220px;max-width:260px;">
             <div style="width:34px;height:34px;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(26,79,122,0.3);">
                 <i class="bi bi-people-fill text-white" style="font-size:0.85rem;"></i>
@@ -632,6 +601,25 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                 <div style="font-size:1.25rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($barangayAdmins) ?></div>
                 <div style="font-size:0.7rem;color:#3a7fa8;margin-top:2px;">Barangay Admins</div>
             </div>
+        </div>
+        </div>
+        <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap ms-auto">
+            <form method="get" class="d-flex" style="gap:6px;">
+                <input type="text" name="search" value="<?= htmlspecialchars($search) ?>"
+                       class="form-control form-control-sm" placeholder="Search users…"
+                       style="min-width:180px;border-radius:8px;font-size:0.82rem;">
+                <button class="btn btn-sm btn-outline-secondary" type="submit" style="border-radius:8px;">
+                    <i class="bi bi-search"></i>
+                </button>
+                <?php if ($search): ?>
+                    <a href="users.php" class="btn btn-sm btn-outline-danger" style="border-radius:8px;" title="Clear search">
+                        <i class="bi bi-x"></i>
+                    </a>
+                <?php endif; ?>
+            </form>
+            <button class="btn btn-sm btn-success fw-semibold" data-bs-toggle="modal" data-bs-target="#addUserModal">
+                <i class="bi bi-person-plus-fill me-1"></i>Add User
+            </button>
         </div>
     </div>
 
@@ -833,7 +821,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label form-label-sm fw-semibold mb-1">Middle Name</label>
-                                <input type="text" id="add_middle_name" class="form-control form-control-sm">
+                                <input type="text" id="add_middle_name" class="form-control form-control-sm" oninput="checkDuplicateName()">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label form-label-sm fw-semibold mb-1">Last Name <span class="text-danger">*</span></label>
@@ -843,7 +831,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                         <div id="dupNameWarn" style="display:none;" class="mb-2">
                             <div class="alert alert-warning py-1 small mb-0">
                                 <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                                A user with this name already exists. You can still proceed if this is a different person.
+                                A user with this exact full name already exists. Please check the first, middle, and last name.
                             </div>
                         </div>
 
@@ -852,12 +840,13 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                             <div class="col-md-4">
                                 <label class="form-label form-label-sm fw-semibold mb-1">Username <span class="text-danger">*</span></label>
                                 <div class="input-group input-group-sm">
-                                    <input type="text" id="add_username" class="form-control form-control-sm" placeholder="e.g. jdelacruz" required>
+                                    <input type="text" id="add_username" class="form-control form-control-sm" placeholder="e.g. jdelacruz" required oninput="checkUsernameAvailability()">
                                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="suggestUsername()" title="Suggest">
                                         <i class="bi bi-magic"></i>
                                     </button>
                                 </div>
                                 <div class="form-text" style="font-size:0.7rem;">Used for login.</div>
+                                <div id="usernameAvailability" class="mt-1" style="display:none;font-size:0.75rem;" aria-live="polite"></div>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label form-label-sm fw-semibold mb-1">Email <span class="text-danger">*</span></label>
@@ -1442,60 +1431,6 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <input type="hidden" name="action" value="unlock_login">
     <input type="hidden" name="user_id" id="unlockLoginUserId">
 </form>
-<!-- Delete User hidden form -->
-<form method="POST" id="deleteUserForm">
-    <?= csrfField() ?>
-    <input type="hidden" name="action" value="delete_user">
-    <input type="hidden" name="user_id" id="deleteUserId">
-    <input type="hidden" name="confirm_password" id="deleteConfirmPassword">
-</form>
-
-<!-- Delete User Modal -->
-<div class="modal fade" id="deleteUserModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="border-radius:16px; overflow:hidden;">
-            <div class="d-flex">
-                <!-- LEFT -->
-                <div class="d-flex flex-column align-items-center justify-content-center px-4 py-5"
-                     style="background:linear-gradient(160deg,#c62828 0%,#e53935 100%); min-width:220px; width:220px; align-self:stretch;">
-                    <div style="width:80px;height:80px;background:rgba(255,255,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,0.3);">
-                        <i class="bi bi-trash3-fill text-white" style="font-size:2.2rem;"></i>
-                    </div>
-                    <h5 class="fw-bold mt-3 mb-1 text-white text-center">Delete User</h5>
-                    <p class="text-white-50 small text-center mb-0">This cannot be undone</p>
-                </div>
-                <!-- RIGHT -->
-                <div class="flex-fill d-flex flex-column justify-content-between p-4">
-                    <div>
-                        <p class="text-muted small mb-1">You are about to permanently delete:</p>
-                        <p class="fw-bold fs-6 mb-3" id="deleteUserName" style="color:#c62828;"></p>
-                        <div class="alert alert-danger py-2 small mb-3">
-                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
-                            This will permanently delete the user and all their data. This action cannot be reversed.
-                        </div>
-                        <label class="form-label fw-semibold">Enter your password to confirm</label>
-                        <div class="input-group">
-                            <input type="password" id="deletePassInput" class="form-control" placeholder="Your password">
-                            <button type="button" class="btn btn-outline-secondary" onclick="togglePassVis('deletePassInput','deletePassEye')">
-                                <i class="bi bi-eye" id="deletePassEye"></i>
-                            </button>
-                        </div>
-                        <div id="deletePassErr" class="text-danger small mt-1" style="display:none;">
-                            <i class="bi bi-x-circle me-1"></i>Password is required.
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2 mt-4">
-                        <button type="button" class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-danger flex-fill fw-semibold" onclick="submitDeleteUser()">
-                            <i class="bi bi-trash3 me-1"></i>Confirm Delete
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Reset Password Modal -->
 <div class="modal fade" id="resetPassModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -1903,18 +1838,53 @@ function validateContact(input, errId) {
 }
 
 // ── Duplicate name check ───────────────────────────────────
-const existingUsers = <?= json_encode(array_map(fn($u) => [
-    'first_name' => strtolower($u['first_name']),
-    'last_name'  => strtolower($u['last_name'])
-], $users)) ?>;
+const existingFullNames = <?= json_encode(array_map(fn($user) => [
+    'first_name' => strtolower(trim($user['first_name'] ?? '')),
+    'middle_name' => strtolower(trim($user['middle_name'] ?? '')),
+    'last_name' => strtolower(trim($user['last_name'] ?? ''))
+], $existingFullNames), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 
 function checkDuplicateName() {
     const fn = document.getElementById('add_first_name').value.trim().toLowerCase();
+    const mn = document.getElementById('add_middle_name').value.trim().toLowerCase();
     const ln = document.getElementById('add_last_name').value.trim().toLowerCase();
     const warn = document.getElementById('dupNameWarn');
-    if (!fn || !ln) { warn.style.display = 'none'; return; }
-    const isDup = existingUsers.some(u => u.first_name === fn && u.last_name === ln);
+    const nameInputs = [
+        document.getElementById('add_first_name'),
+        document.getElementById('add_middle_name'),
+        document.getElementById('add_last_name')
+    ];
+    const isDup = !!fn && !!ln && existingFullNames.some(user =>
+        user.first_name === fn && user.middle_name === mn && user.last_name === ln
+    );
     warn.style.display = isDup ? 'block' : 'none';
+    nameInputs.forEach(input => input.classList.toggle('is-invalid', isDup));
+    return !isDup;
+}
+
+// ── Username availability check ────────────────────────────
+const existingUsernames = <?= json_encode($existingUsernames, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+
+function checkUsernameAvailability() {
+    const input = document.getElementById('add_username');
+    const status = document.getElementById('usernameAvailability');
+    const username = input.value.trim().toLowerCase();
+    input.classList.remove('is-valid', 'is-invalid');
+
+    if (!username) {
+        status.style.display = 'none';
+        status.textContent = '';
+        return false;
+    }
+
+    const isTaken = existingUsernames.includes(username);
+    status.className = isTaken ? 'mt-1 text-danger' : 'mt-1 text-success';
+    status.style.display = 'block';
+    status.innerHTML = isTaken
+        ? '<i class="bi bi-exclamation-triangle-fill me-1"></i>This username is already taken. Please choose another.'
+        : '<i class="bi bi-check-circle-fill me-1"></i>This username is available.';
+    input.classList.add(isTaken ? 'is-invalid' : 'is-valid');
+    return !isTaken;
 }
 
 // ── Password mode toggle ───────────────────────────────────
@@ -1957,6 +1927,7 @@ function suggestUsername() {
     const ln = document.getElementById('add_last_name').value.trim().toLowerCase().replace(/\s+/g,'');
     if (!fn || !ln) { alert('Enter first and last name first.'); return; }
     document.getElementById('add_username').value = fn[0] + ln + Math.floor(Math.random()*90+10);
+    checkUsernameAvailability();
 }
 
 // ── Random password generator (client-side preview) ────────
@@ -1981,6 +1952,14 @@ function openReviewModal() {
 
     if (!fn || !ln || !un || !em) {
         alert('Please fill in all required fields (First Name, Last Name, Username, Email).'); return;
+    }
+    if (!checkDuplicateName()) {
+        document.getElementById('add_first_name').focus();
+        return;
+    }
+    if (!checkUsernameAvailability()) {
+        document.getElementById('add_username').focus();
+        return;
     }
     // Contact digits check
     const ct = document.getElementById('add_contact').value.trim();
@@ -2076,27 +2055,6 @@ function toggleReviewPass() {
 function backToAddModal() {
     bootstrap.Modal.getInstance(document.getElementById('reviewUserModal')).hide();
     setTimeout(() => new bootstrap.Modal(document.getElementById('addUserModal')).show(), 300);
-}
-
-// ── Delete User Modal ──────────────────────────────────────
-function openDeleteModal(userId, userName) {
-    document.getElementById('deleteUserId').value    = userId;
-    document.getElementById('deleteUserName').textContent = userName;
-    document.getElementById('deletePassInput').value = '';
-    document.getElementById('deletePassErr').style.display = 'none';
-    document.getElementById('deletePassInput').classList.remove('is-invalid');
-    new bootstrap.Modal(document.getElementById('deleteUserModal')).show();
-}
-function submitDeleteUser() {
-    const pass = document.getElementById('deletePassInput').value;
-    if (!pass) {
-        document.getElementById('deletePassErr').style.display = 'block';
-        document.getElementById('deletePassInput').classList.add('is-invalid');
-        return;
-    }
-    document.getElementById('deleteConfirmPassword').value = pass;
-    bootstrap.Modal.getInstance(document.getElementById('deleteUserModal')).hide();
-    document.getElementById('deleteUserForm').submit();
 }
 
 // ── Barangay custom dropdown ──────────────────────────────
@@ -2288,11 +2246,6 @@ function openUserDrawer(userJson) {
         closeUserDrawer();
         setTimeout(() => openArchiveModal(u.id, fullName), 350);
     };
-    document.getElementById('drawerDeleteBtn').onclick = function () {
-        closeUserDrawer();
-        setTimeout(() => openDeleteModal(u.id, fullName), 350);
-    };
-
     // Open drawer
     document.getElementById('userDrawer').classList.add('open');
     document.getElementById('drawerBackdrop').classList.add('show');
@@ -2433,14 +2386,8 @@ function approveUnlockRequest(requestId, btn) {
             <button class="btn btn-outline-danger w-100 text-start" id="drawerArchiveBtn">
                 <i class="bi bi-archive me-2"></i>Archive User
             </button>
-            <hr class="my-1">
-            <button class="btn btn-danger w-100 text-start" id="drawerDeleteBtn">
-                <i class="bi bi-trash3 me-2"></i>Delete Permanently
-            </button>
         </div>
     </div>
 </div>
 </body>
 </html>
-
-

@@ -126,18 +126,15 @@ try {
         <div class="dropdown">
             <button class="btn btn-sm d-flex align-items-center gap-2 border rounded-pill px-3 py-1" data-bs-toggle="dropdown">
                 <?php
-                $tbPhoto = $_SESSION['user_photo'] ?? null;
-                if (!$tbPhoto) {
-                    try {
-                        $tbStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-                        $tbStmt->execute([$u['id']]);
-                        $tbPhoto = $tbStmt->fetchColumn() ?: null;
-                        if ($tbPhoto) $_SESSION['user_photo'] = $tbPhoto;
-                    } catch (Exception $e) {}
-                }
+                $tbStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
+                $tbStmt->execute([$u['id']]);
+                $tbPhoto = $tbStmt->fetchColumn() ?: null;
+                $_SESSION['user_photo'] = $tbPhoto;
+                $tbPhotoPath = $tbPhoto ? UPLOAD_PATH . 'profile_photos/' . $tbPhoto : '';
+                $tbPhotoVersion = $tbPhotoPath && is_file($tbPhotoPath) ? filemtime($tbPhotoPath) : '';
                 ?>
                 <?php if ($tbPhoto): ?>
-                    <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . $tbPhoto) ?>"
+                    <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . rawurlencode($tbPhoto) . ($tbPhotoVersion ? '?v=' . $tbPhotoVersion : '')) ?>"
                          alt="Profile"
                          width="28" height="28"
                          style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">
@@ -314,7 +311,7 @@ function toggleSidebar() {
         // Refresh Bootstrap tooltips on nav links
         if (collapsed) {
             document.querySelectorAll('.sidebar-nav .nav-link').forEach(function(el) {
-                if (!el._bsTooltip) {
+                if (!el._bsTooltip && typeof bootstrap !== 'undefined') {
                     el._bsTooltip = new bootstrap.Tooltip(el, { placement: 'right', trigger: 'hover' });
                 }
             });
@@ -335,7 +332,7 @@ function toggleSidebar() {
             if (icon) icon.className = 'bi bi-layout-sidebar';
             // Init tooltips
             document.querySelectorAll('.sidebar-nav .nav-link').forEach(function(el) {
-                if (!el._bsTooltip) {
+                if (!el._bsTooltip && typeof bootstrap !== 'undefined') {
                     el._bsTooltip = new bootstrap.Tooltip(el, { placement: 'right', trigger: 'hover' });
                 }
             });
@@ -343,28 +340,21 @@ function toggleSidebar() {
     }
 })();
 
-// ── Page transition: fade-out on navigate ────────────────
+// ── Page transition: instant navigate (no fade — prevents freeze on slow connections) ────────────────
 (function () {
-    document.addEventListener('DOMContentLoaded', function () {
-        var content = document.querySelector('.main-content');
-        document.querySelectorAll('a[href]').forEach(function (a) {
-            var href = a.getAttribute('href') || '';
-            if (!href || href.startsWith('#') || href.startsWith('javascript')
-                || a.target === '_blank' || a.classList.contains('nav-parent-link')) return;
-
-            a.addEventListener('click', function (e) {
-                if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-                if (!content) return;
-                e.preventDefault();
-                var dest = a.href;
-                // Opacity only — NO transform, prevents stacking context / sidebar flicker
-                content.style.transition = 'opacity 0.14s ease';
-                content.style.opacity    = '0';
-                setTimeout(function () { window.location.href = dest; }, 145);
-            });
-        });
-    });
+    // No fade-out — direct navigation only
 })();
+
+// ── bfcache: prevent stale page restore that hides fixed elements ──
+window.addEventListener('pageshow', function(e) {
+    if (e.persisted) {
+        // Just force a style recalc — no reload needed
+        var topbar = document.querySelector('.topbar');
+        var sidebar = document.querySelector('.sidebar');
+        if (topbar)  { topbar.style.display  = 'none'; topbar.offsetHeight;  topbar.style.display  = ''; }
+        if (sidebar) { sidebar.style.display = 'none'; sidebar.offsetHeight; sidebar.style.display = ''; }
+    }
+});
 
 // ── Sidebar settings sub-menu toggle ─────────────────────
 function sidebarSubToggle(e, el) {
