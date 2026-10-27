@@ -129,6 +129,33 @@ $manualReports = $db->query("
     ORDER BY mr.sent_at DESC
 ")->fetchAll();
 
+$db->exec("CREATE TABLE IF NOT EXISTS manual_report_attachments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    report_id INT UNSIGNED NOT NULL,
+    barangay_id INT UNSIGNED NOT NULL,
+    uploaded_by INT UNSIGNED NOT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    stored_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_size INT UNSIGNED NOT NULL DEFAULT 0,
+    mime_type VARCHAR(120) NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_report (report_id),
+    INDEX idx_barangay (barangay_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$manualReportAttachments = [];
+if (!empty($manualReports)) {
+    $reportIds = array_map(fn($report) => (int)$report['id'], $manualReports);
+    $placeholders = implode(',', array_fill(0, count($reportIds), '?'));
+    $attachmentStmt = $db->prepare("SELECT id, report_id, original_name, file_size, mime_type
+        FROM manual_report_attachments WHERE report_id IN ($placeholders) ORDER BY created_at ASC");
+    $attachmentStmt->execute($reportIds);
+    foreach ($attachmentStmt->fetchAll(PDO::FETCH_ASSOC) as $attachment) {
+        $manualReportAttachments[(int)$attachment['report_id']][] = $attachment;
+    }
+}
+
 $manualReportCount = count($manualReports);
 
 // ── Filters ────────────────────────────────────────────────
@@ -230,7 +257,7 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 
-<div class="main-content">
+<div class="main-content" style="animation:none;">
 
     
 
@@ -328,6 +355,12 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
     .sa-mr-dbody::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
     .sa-mr-dfooter { padding:12px 24px; border-top:1px solid #e2eaf2; background:#f8fafc; display:flex; align-items:center; flex-shrink:0; }
     .sa-mr-content { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:18px 20px; white-space:pre-wrap; line-height:1.8; font-size:.9rem; color:#334155; min-height:180px; }
+    .sa-mr-attachments { margin-top:16px; }
+    .sa-mr-attachment-grid { display:flex; flex-wrap:wrap; gap:10px; }
+    .sa-mr-attachment { display:flex; align-items:center; gap:10px; max-width:100%; padding:8px 10px; border:1px solid #dbe5ef; border-radius:8px; background:#fff; color:#1a4f7a; text-decoration:none; }
+    .sa-mr-attachment:hover { border-color:#8fb1d1; background:#f8fbff; color:#1a4f7a; }
+    .sa-mr-attachment img { width:52px; height:52px; object-fit:cover; border-radius:5px; }
+    .sa-mr-attachment-name { max-width:260px; overflow-wrap:anywhere; font-size:.78rem; font-weight:600; }
     </style>
 
     <div class="sa-mr-shell">
@@ -355,6 +388,7 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
                         'author'   => $mr['author_name'],
                         'email'    => $mr['author_email'] ?? '',
                         'barangay' => $mr['barangay_name'],
+                        'attachments' => $manualReportAttachments[(int)$mr['id']] ?? [],
                         'sentAt'   => $mr['sent_at'] ? date('M d, Y h:i A', strtotime($mr['sent_at'])) : '',
                         'date'     => date('M d, Y', strtotime($mr['created_at'])),
                         'seenAt'   => !empty($mr['seen_at']) ? date('M d, Y h:i A', strtotime($mr['seen_at'])) : '',
@@ -406,6 +440,7 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
                 </div>
                 <div class="sa-mr-dbody">
                     <div class="sa-mr-content" id="mrBody"></div>
+                    <div class="sa-mr-attachments" id="mrAttachments"></div>
                 </div>
                 <div class="sa-mr-dfooter">
                     <span style="font-size:.8rem;color:#16a34a;"><i class="bi bi-send-check-fill me-1"></i>Received from Barangay</span>
@@ -592,14 +627,29 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
     </div>
 
     <!-- Pagination -->
-    <?php if ($totalPages > 1): ?>
+    <?php if ($totalRows > 0): ?>
     <?php
         $queryParams = $_GET; unset($queryParams['page']);
         $baseQuery   = http_build_query($queryParams);
         $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
         $window = 2;
     ?>
-    <?php $page = $currentPage; $totalCount = $totalRows; $offset = ($page-1)*$perPage; $paginationBase = $baseUrl; $paginationLabel = 'report'; include __DIR__ . '/../includes/pagination.php'; ?>
+    <?php $page = (int)$currentPage; $totalCount = (int)$totalRows; $offset = (int)$offset; $paginationBase = $baseUrl; $paginationLabel = 'report'; include __DIR__ . '/../includes/pagination.php'; ?>
+    <?php if ($totalPages === 1): ?>
+    <nav class="mt-1" aria-label="Report pagination controls">
+        <ul class="pagination pagination-sm mb-0 justify-content-center">
+            <li class="page-item disabled">
+                <span class="page-link"><i class="bi bi-chevron-left"></i></span>
+            </li>
+            <li class="page-item active" aria-current="page">
+                <span class="page-link">1</span>
+            </li>
+            <li class="page-item disabled">
+                <span class="page-link"><i class="bi bi-chevron-right"></i></span>
+            </li>
+        </ul>
+    </nav>
+    <?php endif; ?>
     <?php endif; ?>
 
     <?php endif; /* end mainTab === data_reports */ ?>
@@ -891,6 +941,7 @@ function openMR(el) {
     document.getElementById('mrAuthor').textContent     = r.author   || '—';
     document.getElementById('mrDate').textContent       = r.sentAt   || r.date;
     document.getElementById('mrBody').textContent       = r.body;
+    renderManualReportAttachments(r.attachments || []);
     document.getElementById('mrMeta').textContent       = 'Submitted: ' + (r.sentAt || r.date);
     document.getElementById('mrBadge').innerHTML        =
         `<span style="font-size:.7rem;padding:2px 10px;border-radius:20px;font-weight:600;background:${bg};color:${color};">${icon} ${r.type}</span>`;
@@ -951,6 +1002,48 @@ function openMR(el) {
             .catch(() => {});
         r._seen = true;
     }
+}
+
+function renderManualReportAttachments(attachments) {
+    const container = document.getElementById('mrAttachments');
+    container.replaceChildren();
+    if (!Array.isArray(attachments) || attachments.length === 0) return;
+
+    const heading = document.createElement('div');
+    heading.className = 'small fw-semibold text-secondary mb-2';
+    heading.innerHTML = '<i class="bi bi-paperclip me-1"></i>Attachments (' + attachments.length + ')';
+    const grid = document.createElement('div');
+    grid.className = 'sa-mr-attachment-grid';
+
+    attachments.forEach(function(attachment) {
+        const url = '<?= BASE_URL ?>/super_admin/manual_report_attachment.php?id=' + encodeURIComponent(attachment.id);
+        const link = document.createElement('a');
+        link.className = 'sa-mr-attachment';
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+
+        if (typeof attachment.mime_type === 'string' && attachment.mime_type.startsWith('image/')) {
+            const image = document.createElement('img');
+            image.src = url;
+            image.alt = attachment.original_name;
+            image.loading = 'lazy';
+            link.appendChild(image);
+        } else {
+            const icon = document.createElement('i');
+            icon.className = 'bi ' + (attachment.mime_type === 'application/pdf' ? 'bi-file-earmark-pdf' : 'bi-file-earmark-text');
+            icon.style.fontSize = '1.4rem';
+            link.appendChild(icon);
+        }
+
+        const name = document.createElement('span');
+        name.className = 'sa-mr-attachment-name';
+        name.textContent = attachment.original_name;
+        link.appendChild(name);
+        grid.appendChild(link);
+    });
+
+    container.append(heading, grid);
 }
 
 // Auto-open first item on manual reports tab

@@ -655,7 +655,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                     </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($superAdmins as $usr):
+                <?php foreach ($superAdminsPaged as $usr):
                     $isMe = ($usr['id'] == $u['id']);
                 ?>
                     <tr style="border-bottom:1px solid #f8fafc;transition:background 0.15s;<?= $isMe ? 'background:#f0f7ff;' : '' ?>"
@@ -713,6 +713,18 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             </table>
         </div>
         <?php endif; ?>
+        <?php if ($saTotal > 0): ?>
+            <?php
+            $page = $saPage;
+            $totalPages = $saPages;
+            $totalCount = $saTotal;
+            $offset = $saOffset;
+            $paginationBase = $search ? '?' . http_build_query(['search' => $search]) . '&' : '?';
+            $paginationLabel = 'system administrator';
+            $paginationParam = 'sa_page';
+            include __DIR__ . '/../includes/pagination.php';
+            ?>
+        <?php endif; ?>
     </div>
 
     <!-- Barangay Admins Table -->
@@ -747,7 +759,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                     </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($barangayAdmins as $usr): ?>
+                <?php foreach ($barangayAdminsPaged as $usr): ?>
                     <tr style="border-bottom:1px solid #f8fafc;transition:background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
                         <td class="ps-4 py-3" style="border:none;">
                             <div class="d-flex align-items-center gap-3">
@@ -791,6 +803,18 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                 </tbody>
             </table>
         </div>
+        <?php endif; ?>
+        <?php if ($baTotal > 0): ?>
+            <?php
+            $page = $baPage;
+            $totalPages = $baPages;
+            $totalCount = $baTotal;
+            $offset = $baOffset;
+            $paginationBase = $search ? '?' . http_build_query(['search' => $search]) . '&' : '?';
+            $paginationLabel = 'barangay administrator';
+            $paginationParam = 'ba_page';
+            include __DIR__ . '/../includes/pagination.php';
+            ?>
         <?php endif; ?>
     </div>
 </div>
