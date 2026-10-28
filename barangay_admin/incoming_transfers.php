@@ -294,7 +294,7 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         .status-badge-orange { background-color:#fd7e14; color:#fff; }
         .doc-item { display:flex; align-items:center; gap:10px; padding:10px 14px;
@@ -480,12 +480,12 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
     </div>
 
     <!-- Pagination -->
-    <?php if ($totalPages > 1):
-        $paginationBase  = '?' . http_build_query(array_filter(['search'=>$search,'status'=>$statusFilter]));
-        $paginationBase  = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-        $paginationLabel = 'transfer';
-        include __DIR__ . '/../includes/pagination.php';
-    endif; ?>
+    <?php
+    $paginationBase  = '?' . http_build_query(array_filter(['search'=>$search,'status'=>$statusFilter]));
+    $paginationBase  = ($paginationBase === '?') ? '?' : $paginationBase . '&';
+    $paginationLabel = 'transfer';
+    include __DIR__ . '/../includes/pagination.php';
+    ?>
 
 </div><!-- /main-content -->
 
@@ -771,4 +771,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-

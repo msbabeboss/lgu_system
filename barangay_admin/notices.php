@@ -67,7 +67,7 @@ $typeConfig = [
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         /* ── Email-client split layout ─────────────────────── */
         .notices-shell {
@@ -329,14 +329,13 @@ $typeConfig = [
             </div>
 
             <!-- Pagination inside list panel -->
-            <?php if ($totalPages > 1):
+            <?php
                 $qBase = '?' . http_build_query(array_filter(['type'=>$filterType,'search'=>$search]));
                 $qBase = ($qBase === '?') ? '?' : $qBase . '&';
             ?>
             <div style="padding:8px 12px;border-top:1px solid #e2eaf2;background:#fff;flex-shrink:0;">
                 <?php $paginationBase = $qBase; $paginationLabel = 'announcement'; include __DIR__ . '/../includes/pagination.php'; ?>
             </div>
-            <?php endif; ?>
         </div>
 
         <!-- RIGHT: detail -->

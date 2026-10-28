@@ -121,7 +121,7 @@ $pageSubtitle = '';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         .notif-row {
             display: flex; align-items: flex-start; gap: 10px;
@@ -228,7 +228,7 @@ $pageSubtitle = '';
     </div>
 
     <!-- Pagination -->
-    <div id="notif-pagination" class="mt-3 d-flex justify-content-center"></div>
+    <div id="notif-pagination" class="table-pagination mt-3 d-flex justify-content-center"></div>
 
 </div>
 
@@ -290,7 +290,6 @@ $pageSubtitle = '';
     }
 
     function renderPagination(d) {
-        if (d.totalPages <= 1) { pagWrap.innerHTML = ''; return; }
         var html = '<ul class="pagination pagination-sm mb-0">';
         html += '<li class="page-item'+(d.page<=1?' disabled':'')+'"><a class="page-link" href="#" data-p="'+(d.page-1)+'">&laquo;</a></li>';
         for (var p = Math.max(1,d.page-2); p <= Math.min(d.totalPages,d.page+2); p++) {

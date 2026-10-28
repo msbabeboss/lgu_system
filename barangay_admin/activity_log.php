@@ -39,7 +39,7 @@ if ($userFilter) $baseWhere .= " AND al.user_id = $userFilter";
 
 // Pagination
 $perPage     = 10;
-$currentPage = max(1, (int)($_GET['page'] ?? 1));
+$activityPage = max(1, (int)($_GET['page'] ?? 1));
 
 $totalRows = (int)$db->query("
     SELECT COUNT(*)
@@ -48,8 +48,8 @@ $totalRows = (int)$db->query("
     $baseWhere
 ")->fetchColumn();
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
-$currentPage = min($currentPage, $totalPages);
-$offset      = ($currentPage - 1) * $perPage;
+$activityPage = min($activityPage, $totalPages);
+$offset       = ($activityPage - 1) * $perPage;
 
 $logs = $db->query("
     SELECT al.id, al.action, al.description, al.created_at,
@@ -112,7 +112,7 @@ $pageSubtitle = 'Track recent actions performed in the system.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -239,14 +239,14 @@ $pageSubtitle = 'Track recent actions performed in the system.';
     </div>
 
     <!-- Pagination -->
-    <?php if ($totalPages > 1):
-        $qp = $_GET; unset($qp['page']);
-        $bq = http_build_query($qp);
-        $bu = '?' . ($bq ? $bq . '&' : '');
-        $page = (int)$currentPage; $totalCount = (int)$totalRows;
-        $paginationBase = $bu; $paginationLabel = 'record';
-        include __DIR__ . '/../includes/pagination.php';
-    endif; ?>
+    <?php
+    $qp = $_GET; unset($qp['page']);
+    $bq = http_build_query($qp);
+    $bu = '?' . ($bq ? $bq . '&' : '');
+    $page = (int)$activityPage; $totalCount = (int)$totalRows;
+    $paginationBase = $bu; $paginationLabel = 'record';
+    include __DIR__ . '/../includes/pagination.php';
+    ?>
 
 </div><!-- /.main-content -->
 
@@ -263,4 +263,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-

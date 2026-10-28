@@ -201,7 +201,7 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -336,14 +336,15 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
             </table>
         </div>
     </div>
+    <div class="mt-3 p-2 bg-white rounded">
+        <?php
+        $paginationBase = '?' . http_build_query(array_filter(['search' => $search]));
+        $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
+        $paginationLabel = 'household';
+        include __DIR__ . '/../includes/pagination.php';
+        ?>
+    </div>
 </div>
-
-<?php
-$paginationBase = '?' . http_build_query(array_filter(['search' => $search]));
-$paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-$paginationLabel = 'household';
-include __DIR__ . '/../includes/pagination.php';
-?>
 
 <!-- View Modal -->
 <div class="modal fade" id="viewHHModal" tabindex="-1">
@@ -819,5 +820,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-
-

@@ -255,7 +255,7 @@ $pageSubtitle = 'Review and approve resident transfer requests from barangays.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -404,12 +404,12 @@ $pageSubtitle = 'Review and approve resident transfer requests from barangays.';
         </div>
     </div>
 
-    <?php if ($totalPages > 1):
+    <?php
         $paginationBase  = '?' . http_build_query(array_filter(['search'=>$search,'status'=>$statusFilter,'barangay_id'=>$brgyFilter?:null]));
         $paginationBase  = ($paginationBase === '?') ? '?' : $paginationBase . '&';
         $paginationLabel = 'request';
         include __DIR__ . '/../includes/pagination.php';
-    endif; ?>
+    ?>
 
 </div>
 

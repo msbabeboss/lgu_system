@@ -51,7 +51,7 @@ if ($userFilter) $baseWhere .= " AND al.user_id = $userFilter";
 
 // Pagination
 $perPage     = 10;
-$currentPage = max(1, (int)($_GET['page'] ?? 1));
+$auditPage = max(1, (int)($_GET['page'] ?? 1));
 
 $countStmt = $db->prepare("
     SELECT COUNT(*)
@@ -62,8 +62,8 @@ $countStmt = $db->prepare("
 $countStmt->execute($auditActions);
 $totalRows  = (int)$countStmt->fetchColumn();
 $totalPages = max(1, (int)ceil($totalRows / $perPage));
-$currentPage = min($currentPage, $totalPages);
-$offset = ($currentPage - 1) * $perPage;
+$auditPage = min($auditPage, $totalPages);
+$offset = ($auditPage - 1) * $perPage;
 
 $stmt = $db->prepare("
     SELECT al.id, al.action, al.description, al.created_at,
@@ -126,7 +126,29 @@ $pageSubtitle = 'Detailed log of all system events and data changes.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <style>
+        .audit-pagination {
+            display: flex;
+            justify-content: center;
+            padding: 12px;
+            background: #f1f6fb;
+            border-top: 1px solid #e2e8f0;
+        }
+        .audit-pagination .page-link {
+            border-radius: 6px !important;
+            margin: 0 1px;
+            min-width: 30px;
+            text-align: center;
+            font-size: 0.78rem;
+            padding: 3px 8px;
+        }
+        .audit-pagination .page-item.disabled .page-link {
+            background: #e9ecef;
+            border-color: #dee2e6;
+            color: #6c757d;
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -254,17 +276,31 @@ $pageSubtitle = 'Detailed log of all system events and data changes.';
                 </tbody>
             </table>
         </div>
-    </div>
-
-    <!-- Pagination -->
-    <?php if ($totalPages > 1):
+        <!-- Pagination -->
+    <?php
         $qp = $_GET; unset($qp['page']);
         $bq = http_build_query($qp);
         $bu = '?' . ($bq ? $bq . '&' : '');
-        $page = (int)$currentPage; $totalCount = (int)$totalRows;
-        $paginationBase = $bu; $paginationLabel = 'record';
-        include __DIR__ . '/../includes/pagination.php';
-    endif; ?>
+        $pageStart = max(1, $auditPage - 1);
+        $pageEnd = min($totalPages, $pageStart + 2);
+        $pageStart = max(1, $pageEnd - 2);
+    ?>
+        <nav class="audit-pagination table-pagination mt-3" aria-label="Audit log table pagination">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item <?= $auditPage <= 1 ? 'disabled' : '' ?>">
+                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . max(1, $auditPage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page"><i class="bi bi-chevron-left"></i></a>
+                </li>
+                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
+                <li class="page-item <?= $pageNumber === $auditPage ? 'active' : '' ?>">
+                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $auditPage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
+                </li>
+                <?php endfor; ?>
+                <li class="page-item <?= $auditPage >= $totalPages ? 'disabled' : '' ?>">
+                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . min($totalPages, $auditPage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page"><i class="bi bi-chevron-right"></i></a>
+                </li>
+            </ul>
+        </nav>
+    </div>
 
 </div><!-- /.main-content -->
 
@@ -281,4 +317,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-

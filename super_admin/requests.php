@@ -201,8 +201,57 @@ $pageSubtitle = 'Manage barangay requests.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
-    <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <style>
+        .btn-xs { padding: 2px 8px; font-size: 0.75rem; }
+        .request-flow-wrap { position: relative; }
+        .request-filter-card.request-flow-open { z-index: 30; }
+        .request-flow-bubble {
+            position: absolute;
+            z-index: 40;
+            top: calc(100% + 10px);
+            right: 0;
+            width: 290px;
+            padding: 12px;
+            border: 1px solid #d7e2ee;
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 6px 20px rgba(15, 37, 64, 0.18);
+            color: #334155;
+            font-size: 0.76rem;
+        }
+        .request-flow-bubble[hidden] { display: none; }
+        .request-flow-bubble::before {
+            content: "";
+            position: absolute;
+            top: -7px;
+            right: 12px;
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border-top: 1px solid #d7e2ee;
+            border-left: 1px solid #d7e2ee;
+            transform: rotate(45deg);
+        }
+        .request-flow-step { display: flex; align-items: center; gap: 8px; }
+        .request-flow-step > span:last-child { color: #475569; }
+        .request-flow-arrow { height: 16px; padding-left: 18px; color: #94a3b8; line-height: 16px; }
+        .request-flow-branches {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 4px 0 0 18px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 8px;
+        }
+        .request-flow-branches > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+        .request-flow-branches > div > i { color: #94a3b8; }
+        .request-flow-branches small { color: #64748b; font-size: 0.67rem; }
+        @media (max-width: 480px) {
+            .request-flow-bubble { right: auto; left: 0; width: min(290px, calc(100vw - 48px)); }
+            .request-flow-bubble::before { right: auto; left: 12px; }
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -222,7 +271,7 @@ $pageSubtitle = 'Manage barangay requests.';
     </div>
 
     <!-- Filters -->
-    <div class="card mb-3">
+    <div class="card mb-3 request-filter-card">
         <div class="card-body py-2">
             <form method="GET" class="d-flex gap-2 flex-wrap align-items-center" id="searchForm">
                 <div class="input-group" style="width:220px;">
@@ -253,8 +302,34 @@ $pageSubtitle = 'Manage barangay requests.';
                     <?php endforeach; ?>
                 </select>
                 <button class="btn btn-sm btn-primary px-3"><i class="bi bi-funnel me-1"></i>Filter</button>
+                <div class="request-flow-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-info px-2" id="requestFlowToggle"
+                            aria-expanded="false" aria-controls="requestStatusFlow"
+                            title="View request status flow" aria-label="View request status flow">
+                        <i class="bi bi-info-circle"></i>
+                    </button>
+                    <div class="request-flow-bubble" id="requestStatusFlow" role="dialog"
+                         aria-labelledby="requestStatusFlowTitle" hidden>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong id="requestStatusFlowTitle">Request status flow</strong>
+                            <button type="button" class="btn-close" id="requestFlowClose" aria-label="Close"></button>
+                        </div>
+                        <div class="request-flow-step"><span class="badge bg-warning text-dark">Pending</span><span>Request submitted</span></div>
+                        <div class="request-flow-arrow"><i class="bi bi-arrow-down"></i></div>
+                        <div class="request-flow-step"><span class="badge bg-info">Viewed</span><span>Admin opens the request</span></div>
+                        <div class="request-flow-arrow"><i class="bi bi-arrow-down"></i></div>
+                        <div class="request-flow-step"><span class="badge bg-primary">Processing</span><span>Admin reviews it (optional)</span></div>
+                        <div class="request-flow-branches">
+                            <div><i class="bi bi-arrow-down"></i><div><span class="badge bg-success">Approved</span><small>Request accepted</small></div><i class="bi bi-arrow-down"></i><div><span class="badge bg-success">Done</span><small>Work completed</small></div></div>
+                            <div><i class="bi bi-arrow-right"></i><div><span class="badge bg-danger">Rejected</span><small>Request declined</small></div></div>
+                        </div>
+                    </div>
+                </div>
                 <?php if ($search || $statusFilter || $typeFilter || $brgyFilter): ?>
-                <a href="?" class="btn btn-sm btn-outline-secondary px-3"><i class="bi bi-x me-1"></i>Clear</a>
+                <a href="requests.php" class="btn btn-sm btn-outline-secondary px-2"
+                   title="Clear filters" aria-label="Clear filters">
+                    <i class="bi bi-x-lg"></i>
+                </a>
                 <?php endif; ?>
             </form>
         </div>
@@ -374,7 +449,7 @@ $pageSubtitle = 'Manage barangay requests.';
     <?php
     $paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'request_type'=>$typeFilter,'status'=>$statusFilter,'barangay_id'=>$brgyFilter?:null]));
     $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-    if ($totalPages > 1): $paginationLabel = 'request'; include __DIR__ . '/../includes/pagination.php'; endif;
+    $paginationLabel = 'request'; include __DIR__ . '/../includes/pagination.php';
     ?>
 
 </div><!-- /.main-content -->
@@ -494,6 +569,23 @@ $pageSubtitle = 'Manage barangay requests.';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
+
+const requestFlowToggle = document.getElementById('requestFlowToggle');
+const requestFlowBubble = document.getElementById('requestStatusFlow');
+function toggleRequestFlow(open) {
+    const shouldOpen = typeof open === 'boolean' ? open : requestFlowBubble.hidden;
+    requestFlowBubble.hidden = !shouldOpen;
+    requestFlowToggle.setAttribute('aria-expanded', String(shouldOpen));
+    requestFlowToggle.closest('.request-filter-card').classList.toggle('request-flow-open', shouldOpen);
+}
+requestFlowToggle.addEventListener('click', () => toggleRequestFlow());
+document.getElementById('requestFlowClose').addEventListener('click', () => toggleRequestFlow(false));
+document.addEventListener('click', event => {
+    if (!event.target.closest('.request-flow-wrap')) toggleRequestFlow(false);
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') toggleRequestFlow(false);
+});
 
 const typeLabels = {
     password_change:  { label: 'Password Change',  color: 'warning' },

@@ -1625,3 +1625,55 @@ input::-webkit-credentials-auto-fill-button {
     pointer-events: none;
 }
 input[type="password"]::-webkit-textfield-decoration-container { display: none; }
+
+/* ── Shared table pagination ─────────────────────────────── */
+.table-pagination {
+    padding: 0;
+    background: transparent;
+    border-top: 0;
+}
+
+.table-pagination .page-link {
+    min-width: 30px;
+    margin: 0 1px;
+    padding: 3px 8px;
+    border-radius: 6px !important;
+    background: #fff;
+    text-align: center;
+    font-size: 0.78rem;
+}
+
+.table-pagination .page-item.active .page-link {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+}
+
+.table-pagination .page-item.disabled .page-link {
+    background: #e9ecef;
+    border-color: #dee2e6;
+    color: #6c757d;
+}
+
+html.dark-mode .table-pagination {
+    background: transparent;
+    border-color: transparent;
+}
+
+html.dark-mode .table-pagination .page-link {
+    background: #0a1929;
+    border-color: #1e3a5f;
+    color: #c1e8ff;
+}
+
+html.dark-mode .table-pagination .page-item.active .page-link {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+}
+
+html.dark-mode .table-pagination .page-item.disabled .page-link {
+    background: #1e293b;
+    border-color: #1e3a5f;
+    color: #94a3b8;
+}

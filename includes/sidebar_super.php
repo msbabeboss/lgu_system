@@ -6,6 +6,11 @@ $brSubPages   = ['barangay_records_barangays.php','barangay_records_residents.ph
                   'barangay_records_reports.php','barangay_records_certificates.php'];
 $brActive     = ($currentPage === 'barangay_records.php' || in_array($currentPage, $brSubPages));
 ?>
+<script>
+if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1') {
+    document.body.classList.add('sidebar-collapsed');
+}
+</script>
 <aside class="sidebar" id="sidebar">
     <!-- Map background overlay -->
     <div class="sidebar-map-bg"></div>

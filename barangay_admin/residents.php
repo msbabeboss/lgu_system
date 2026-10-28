@@ -604,7 +604,7 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         /* ── Autocomplete wrapper ── */
         .ac-wrapper {
@@ -710,6 +710,21 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
             </a>
         </li>
     </ul>
+
+    <?php
+    // Keep active filters and resident tab when moving between pages.
+    $paginationBase = '?' . http_build_query(array_filter([
+        'tab'    => ($tab !== 'active' ? $tab : ''),
+        'search' => $search,
+        'filter' => ($tab !== 'transferred' ? $filter : ''),
+        'gender' => ($tab !== 'transferred' ? $filterGender : ''),
+        'civil'  => ($tab !== 'transferred' ? $filterCivil : ''),
+        'voter'  => ($tab !== 'transferred' ? $filterVoter : ''),
+        'sort'   => ($sort !== 'newest' ? $sort : ''),
+    ]));
+    $paginationBase .= $paginationBase === '?' ? '' : '&';
+    if ($paginationBase === '?') $paginationBase = '?';
+    ?>
 
     <?php if ($tab === 'transferred'): ?>
     <!-- ── Transferred Residents Search + Table ────────────────────────── -->
@@ -863,7 +878,7 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
         </div>
     </div>
 
-    <div style="background:#fff;border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,0.06);border:1px solid #eaecf0;overflow:hidden;">
+    <div class="residents-table-card" style="background:#fff;border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,0.06);border:1px solid #eaecf0;overflow:hidden;">
         <div class="table-responsive">
             <table class="table mb-0" style="font-size:0.84rem;border-collapse:separate;border-spacing:0;">
                 <thead>
@@ -1212,7 +1227,7 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
             <i class="bi bi-x-lg me-1"></i>Clear All
         </button>
     </div>
-    <div style="background:#fff;border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,0.06);border:1px solid #eaecf0;overflow:hidden;">
+    <div class="residents-table-card" style="background:#fff;border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,0.06);border:1px solid #eaecf0;overflow:hidden;">
         <div class="table-responsive">
             <table class="table mb-0" id="residentsTable" style="font-size:0.84rem;border-collapse:separate;border-spacing:0;">
                 <thead>
@@ -1400,24 +1415,10 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
         </div>
     </div>
     <?php endif; // end tab check ?>
+    <div class="mt-3">
+        <?php $paginationLabel = 'resident'; include __DIR__ . '/../includes/pagination.php'; ?>
+    </div>
 </div>
-
-<?php
-// Build pagination query string (preserve search/filter/sort/tab)
-$paginationBase = '?' . http_build_query(array_filter([
-    'tab'    => ($tab !== 'active' ? $tab : ''),
-    'search' => $search,
-    'filter' => ($tab !== 'transferred' ? $filter : ''),
-    'gender' => ($tab !== 'transferred' ? $filterGender : ''),
-    'civil'  => ($tab !== 'transferred' ? $filterCivil : ''),
-    'voter'  => ($tab !== 'transferred' ? $filterVoter : ''),
-    'sort'   => ($sort !== 'newest' ? $sort : ''),
-]));
-$paginationBase .= $paginationBase === '?' ? '' : '&';
-if ($paginationBase === '?') $paginationBase = '?';
-$paginationLabel = 'resident';
-include __DIR__ . '/../includes/pagination.php';
-?>
 
 <!-- (Resident add form moved to add_resident.php) -->
 

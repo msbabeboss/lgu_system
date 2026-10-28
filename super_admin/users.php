@@ -472,11 +472,30 @@ if ($unlockRequestId) {
 }
 
 // Fetch users — include ALL users (current user shown as "You" in the table)
-$search = sanitize($_GET['search'] ?? '');
+$searchInput = $_GET['search'] ?? '';
+$search = is_string($searchInput) ? trim(strip_tags($searchInput)) : '';
+$statusInput = $_GET['status'] ?? '';
+$statusFilter = is_string($statusInput) && in_array($statusInput, ['active', 'blocked', 'locked'], true)
+    ? $statusInput
+    : '';
 $query = "SELECT u.*, b.barangay_name, b.region AS brgy_region, b.province AS brgy_province, b.municipality AS brgy_municipality, b.zip_code AS brgy_zip_code FROM users u LEFT JOIN barangays b ON u.barangay_id=b.id WHERE 1=1";
-if ($search) $query .= " AND (u.first_name LIKE '%$search%' OR u.last_name LIKE '%$search%' OR u.username LIKE '%$search%' OR u.email LIKE '%$search%')";
+$queryParams = [];
+if ($search !== '') {
+    $query .= " AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.username LIKE ? OR u.email LIKE ?)";
+    $searchTerm = '%' . $search . '%';
+    array_push($queryParams, $searchTerm, $searchTerm, $searchTerm, $searchTerm);
+}
+if ($statusFilter === 'active') {
+    $query .= " AND u.status = 'active' AND COALESCE(u.login_locked, 0) = 0";
+} elseif ($statusFilter === 'blocked') {
+    $query .= " AND u.status <> 'active' AND COALESCE(u.login_locked, 0) = 0";
+} elseif ($statusFilter === 'locked') {
+    $query .= " AND COALESCE(u.login_locked, 0) = 1";
+}
 $query .= " ORDER BY u.role='super_admin' DESC, u.created_at DESC";
-$users = $db->query($query)->fetchAll();
+$userQuery = $db->prepare($query);
+$userQuery->execute($queryParams);
+$users = $userQuery->fetchAll();
 $existingUsernames = array_map('strtolower', $db->query("SELECT username FROM users")->fetchAll(PDO::FETCH_COLUMN));
 $existingFullNames = $db->query("
     SELECT first_name, middle_name, last_name
@@ -520,7 +539,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
     .user-drawer {
         position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
@@ -573,46 +592,54 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <?php endif; ?>
 
     <!-- Summary Cards -->
-    <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
-        <div class="d-flex align-items-center gap-3 flex-wrap">
-        <div style="background:#fff;border-radius:14px;padding:12px 20px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:12px;min-width:220px;max-width:260px;">
-            <div style="width:34px;height:34px;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(26,79,122,0.3);">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-3 flex-wrap">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+        <div style="background:#fff;border-radius:12px;padding:9px 12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:9px;min-width:150px;max-width:190px;">
+            <div style="width:30px;height:30px;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(26,79,122,0.3);">
                 <i class="bi bi-people-fill text-white" style="font-size:0.85rem;"></i>
             </div>
             <div>
-                <div style="font-size:1.25rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($users) ?></div>
-                <div style="font-size:0.7rem;color:#3a7fa8;margin-top:2px;">Total Users</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($users) ?></div>
+                <div style="font-size:0.66rem;color:#3a7fa8;margin-top:2px;">Total Users</div>
             </div>
         </div>
-        <div style="background:#fff;border-radius:14px;padding:12px 20px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:12px;min-width:220px;max-width:280px;">
-            <div style="width:34px;height:34px;background:linear-gradient(135deg,#06111e,#1a4f7a);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(15,37,64,0.3);">
+        <div style="background:#fff;border-radius:12px;padding:9px 12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:9px;min-width:150px;max-width:190px;">
+            <div style="width:30px;height:30px;background:linear-gradient(135deg,#06111e,#1a4f7a);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(15,37,64,0.3);">
                 <i class="bi bi-shield-fill-check text-white" style="font-size:0.85rem;"></i>
             </div>
             <div>
-                <div style="font-size:1.25rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($superAdmins) ?></div>
-                <div style="font-size:0.7rem;color:#3a7fa8;margin-top:2px;">System Administrators</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($superAdmins) ?></div>
+                <div style="font-size:0.66rem;color:#3a7fa8;margin-top:2px;">System Admins</div>
             </div>
         </div>
-        <div style="background:#fff;border-radius:14px;padding:12px 20px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:12px;min-width:220px;max-width:260px;">
-            <div style="width:34px;height:34px;background:linear-gradient(135deg,#3a7fa8,#60a5fa);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(58,127,168,0.3);">
+        <div style="background:#fff;border-radius:12px;padding:9px 12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);display:flex;align-items:center;gap:9px;min-width:150px;max-width:190px;">
+            <div style="width:30px;height:30px;background:linear-gradient(135deg,#3a7fa8,#60a5fa);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 4px rgba(58,127,168,0.3);">
                 <i class="bi bi-person-badge-fill text-white" style="font-size:0.85rem;"></i>
             </div>
             <div>
-                <div style="font-size:1.25rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($barangayAdmins) ?></div>
-                <div style="font-size:0.7rem;color:#3a7fa8;margin-top:2px;">Barangay Admins</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#1a2e1f;line-height:1;"><?= count($barangayAdmins) ?></div>
+                <div style="font-size:0.66rem;color:#3a7fa8;margin-top:2px;">Barangay Admins</div>
             </div>
         </div>
         </div>
         <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap ms-auto">
-            <form method="get" class="d-flex" style="gap:6px;">
+            <form method="get" class="d-flex flex-wrap" style="gap:6px;">
                 <input type="text" name="search" value="<?= htmlspecialchars($search) ?>"
                        class="form-control form-control-sm" placeholder="Search users…"
-                       style="min-width:180px;border-radius:8px;font-size:0.82rem;">
+                       style="width:140px;min-width:0;border-radius:8px;font-size:0.82rem;">
+                <select name="status" class="form-select form-select-sm"
+                        aria-label="Filter users by account status"
+                        style="width:125px;min-width:0;border-radius:8px;font-size:0.82rem;">
+                    <option value="">All statuses</option>
+                    <option value="active" <?= $statusFilter === 'active' ? 'selected' : '' ?>>Active</option>
+                    <option value="blocked" <?= $statusFilter === 'blocked' ? 'selected' : '' ?>>Blocked</option>
+                    <option value="locked" <?= $statusFilter === 'locked' ? 'selected' : '' ?>>Login Locked</option>
+                </select>
                 <button class="btn btn-sm btn-outline-secondary" type="submit" style="border-radius:8px;">
-                    <i class="bi bi-search"></i>
+                    <i class="bi bi-funnel"></i>
                 </button>
-                <?php if ($search): ?>
-                    <a href="users.php" class="btn btn-sm btn-outline-danger" style="border-radius:8px;" title="Clear search">
+                <?php if ($search !== '' || $statusFilter !== ''): ?>
+                    <a href="users.php" class="btn btn-sm btn-outline-danger" style="border-radius:8px;" title="Clear filters">
                         <i class="bi bi-x"></i>
                     </a>
                 <?php endif; ?>
@@ -719,7 +746,10 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             $totalPages = $saPages;
             $totalCount = $saTotal;
             $offset = $saOffset;
-            $paginationBase = $search ? '?' . http_build_query(['search' => $search]) . '&' : '?';
+            $paginationBase = '?' . http_build_query(array_filter([
+                'search' => $search,
+                'status' => $statusFilter,
+            ], static fn($value) => $value !== '')) . '&';
             $paginationLabel = 'system administrator';
             $paginationParam = 'sa_page';
             include __DIR__ . '/../includes/pagination.php';
@@ -810,7 +840,10 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             $totalPages = $baPages;
             $totalCount = $baTotal;
             $offset = $baOffset;
-            $paginationBase = $search ? '?' . http_build_query(['search' => $search]) . '&' : '?';
+            $paginationBase = '?' . http_build_query(array_filter([
+                'search' => $search,
+                'status' => $statusFilter,
+            ], static fn($value) => $value !== '')) . '&';
             $paginationLabel = 'barangay administrator';
             $paginationParam = 'ba_page';
             include __DIR__ . '/../includes/pagination.php';

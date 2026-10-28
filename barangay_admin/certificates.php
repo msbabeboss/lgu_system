@@ -13,9 +13,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_issue'])) {
     $resId   = (int)$_POST['resident_id'];
     $type    = $_POST['certificate_type'];
     $purpose = sanitize($_POST['purpose']);
+    $designerData = $_POST['certificate_data'] ?? '';
+    if (strlen($designerData) > 65535 || ($designerData !== '' && !is_array(json_decode($designerData, true)))) {
+        jsonResponse(['success' => false, 'message' => 'Invalid certificate design data.'], 422);
+    }
     $date    = date('Y-m-d');
-    $stmt = $db->prepare("INSERT INTO certificates (barangay_id,resident_id,certificate_type,purpose,issued_by,date_issued) VALUES (?,?,?,?,?,?)");
-    $stmt->execute([$bid, $resId, $type, $purpose, $u['id'], $date]);
+    $stmt = $db->prepare("INSERT INTO certificates (barangay_id,resident_id,certificate_type,purpose,issued_by,date_issued,certificate_data) VALUES (?,?,?,?,?,?,?)");
+    $stmt->execute([$bid, $resId, $type, $purpose, $u['id'], $date, $designerData ?: null]);
     $certId = $db->lastInsertId();
     $resName = $db->prepare("SELECT CONCAT(first_name,' ',last_name) FROM residents WHERE id=?");
     $resName->execute([$resId]);
@@ -39,6 +43,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_issue'])) {
         sendCertificateIssuedEmail($u['email'], $u['name'], $rname, $type, $purpose, $brgyName);
     }
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_update'])) {
+    verifyCsrfOrAbort();
+    $certId = (int)($_POST['cert_id'] ?? 0);
+    $type = sanitize($_POST['certificate_type'] ?? '');
+    $purpose = sanitize($_POST['purpose'] ?? '');
+    $designerData = $_POST['certificate_data'] ?? '';
+    $allowedTypes = ['Indigency', 'Business Permit', 'Residency', 'Clearance', 'Solo Parent', 'Live-in', 'Same Person', 'BARC Certificate', 'Proof of Low Income'];
+
+    if ($certId <= 0 || !in_array($type, $allowedTypes, true) || $purpose === '' ||
+        strlen($designerData) > 65535 || !is_array(json_decode($designerData, true))) {
+        jsonResponse(['success' => false, 'message' => 'Choose a certificate type and enter its purpose.'], 422);
+    }
+
+    $certStmt = $db->prepare("SELECT id FROM certificates WHERE id=? AND barangay_id=?");
+    $certStmt->execute([$certId, $bid]);
+    if (!$certStmt->fetchColumn()) {
+        jsonResponse(['success' => false, 'message' => 'Certificate not found.'], 404);
+    }
+
+    $db->prepare("UPDATE certificates SET certificate_type=?, purpose=?, certificate_data=? WHERE id=? AND barangay_id=?")
+       ->execute([$type, $purpose, $designerData, $certId, $bid]);
+    logActivity($u['id'], 'EDIT_CERTIFICATE', 'Certificates', "Updated certificate #$certId");
+    jsonResponse(['success' => true]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -158,7 +187,52 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <style>
+        .certificates-table-card .table-pagination {
+            margin-top: 0 !important;
+            padding: 8px 12px;
+            background: #fff;
+            border-top: 0;
+        }
+
+        html.dark-mode .certificates-table-card .table-pagination {
+            background: #0f1f35;
+        }
+
+        #certDesignerOverlay.cert-view-mode .designer-main-row {
+            display: block;
+        }
+
+        #certDesignerOverlay.cert-view-mode .toolbar-panel {
+            display: none;
+        }
+
+        #certDesignerOverlay.cert-view-mode .cert-preview-panel {
+            height: calc(100vh - var(--topbar-height) - 52px);
+            border-left: 1px solid #ccc;
+            border-radius: 0;
+        }
+
+        #certDesignerOverlay.cert-view-mode .ef {
+            pointer-events: none;
+        }
+
+        #certDesignerOverlay.cert-view-mode #certTypeLabel,
+        #certDesignerOverlay.cert-view-mode #certTypeDropdown,
+        #certDesignerOverlay.cert-view-mode #btnSave,
+        #certDesignerOverlay.cert-view-mode #saveSuccessBar {
+            display: none !important;
+        }
+
+        #certDesignerOverlay #btnEditSavedCert {
+            display: none;
+        }
+
+        #certDesignerOverlay.cert-view-mode #btnEditSavedCert {
+            display: inline-block;
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -242,7 +316,7 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
         </div>
     </div>
 
-    <div style="background:#fff;border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.07);border:1px solid #dbeafe;overflow:hidden;">
+    <div class="certificates-table-card" style="background:#fff;border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.07);border:1px solid #dbeafe;overflow:hidden;">
         <div class="table-responsive">
             <table class="table mb-0" style="font-size:0.85rem;">
                 <thead>
@@ -276,10 +350,10 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
                         <td class="py-3" style="border:none;font-size:0.8rem;color:#2a5070;"><?= htmlspecialchars($c['issued_by_name'] ?? '') ?></td>
                         <td class="pe-4 py-3" style="border:none;">
                             <div class="d-flex gap-1">
-                                <button onclick="openCertPreview(<?= $c['id'] ?>, this)" class="btn btn-xs btn-primary">
-                                    <i class="bi bi-printer-fill me-1"></i>Print / PDF
+                                <button type="button" onclick="openCertView(<?= $c['id'] ?>, this)" class="btn btn-xs btn-primary" title="View certificate">
+                                    <i class="bi bi-eye-fill me-1"></i>View
                                 </button>
-                                <button onclick="openCertArchiveModal(<?= $c['id'] ?>, '<?= htmlspecialchars(addslashes($c['certificate_type'])) ?>', '<?= htmlspecialchars(addslashes($c['resident_name'])) ?>')"
+                                <button type="button" onclick="openCertArchiveModal(<?= $c['id'] ?>, '<?= htmlspecialchars(addslashes($c['certificate_type'])) ?>', '<?= htmlspecialchars(addslashes($c['resident_name'])) ?>')"
                                         class="btn btn-xs btn-outline-warning" title="Archive">
                                     <i class="bi bi-archive"></i>
                                 </button>
@@ -291,16 +365,13 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
                 </tbody>
             </table>
         </div>
+        <?php
+        $paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
+        $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
+        ?>
+        <?php $paginationLabel = 'certificate'; include __DIR__ . '/../includes/pagination.php'; ?>
     </div>
 </div>
-
-<?php
-$paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
-$paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-?>
-<?php if ($totalPages > 1): ?>
-<?php $paginationLabel = 'certificate'; include __DIR__ . '/../includes/pagination.php'; ?>
-<?php endif; ?>
 
 <!-- ═══════════════════════════════════════════════════════════
      FULL-SCREEN CERTIFICATE DESIGNER OVERLAY
@@ -313,7 +384,7 @@ $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
     <span style="font-weight:700;font-size:0.88rem;" id="overlayTitle">BARANGAY CERTIFICATE — <?= $BRGY ?></span>
     <div style="flex:1;"></div>
     <!-- Certificate Type -->
-    <label style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.85);white-space:nowrap;">Type:</label>
+    <label id="certTypeLabel" style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.85);white-space:nowrap;">Type:</label>
     <select id="certTypeDropdown" onchange="showCertFromDropdown(this.value)"
             style="padding:3px 8px;border:1.5px solid rgba(255,255,255,0.4);border-radius:5px;background:rgba(255,255,255,0.12);color:#fff;font-size:11px;font-weight:600;cursor:pointer;font-family:Arial,sans-serif;min-width:170px;outline:none;">
       <option value="clearance"  style="color:#000;">Barangay Clearance</option>
@@ -348,6 +419,10 @@ $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
     </button>
     <button id="btnPrintCert" onclick="doPrint()" style="padding:4px 12px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;">
       <i class="bi bi-printer-fill me-1"></i>Print / PDF
+    </button>
+    <button id="btnEditSavedCert" type="button" onclick="openSavedCertificateEdit()" title="Edit certificate"
+            style="padding:4px 10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:5px;cursor:pointer;font-size:13px;">
+      <i class="bi bi-pencil-square"></i>
     </button>
     <button onclick="closeCertDesigner()" style="padding:4px 12px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:5px;cursor:pointer;font-size:11px;white-space:nowrap;">
       <i class="bi bi-x-lg me-1"></i>Close
@@ -1362,6 +1437,7 @@ function openCertArchiveModal(id, type, resident) {
 
 // ── Overlay open/close ──
 function openCertDesigner() {
+    document.getElementById('certDesignerOverlay').classList.remove('cert-view-mode');
     // Open the modal on the main page instead of the overlay step 1
     const modal = new bootstrap.Modal(document.getElementById('issueCertModal'));
     // Reset form fields
@@ -1383,7 +1459,9 @@ function openCertDesigner() {
 }
 
 function closeCertDesigner() {
-    document.getElementById('certDesignerOverlay').style.display = 'none';
+    const overlay = document.getElementById('certDesignerOverlay');
+    overlay.style.display = 'none';
+    overlay.classList.remove('cert-view-mode');
     window._savedCertId = null; // reset saved cert on close
     if (window._certIssued) { window._certIssued = false; location.reload(); }
 }
@@ -1450,8 +1528,8 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// ── Print / PDF from table row — fills designer with saved cert data then captures ──
-function openCertPreview(certId, triggerBtn) {
+// ── View a saved certificate from the table ──
+function openCertView(certId, triggerBtn) {
     const btn = triggerBtn || null;
     const origHTML = btn ? btn.innerHTML : '';
     if (btn) { btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Loading...'; btn.disabled = true; }
@@ -1501,6 +1579,12 @@ function openCertPreview(certId, triggerBtn) {
 
             // Sync toolbar → certificate inputs
             applyFields(certKey);
+            if (data.certificate_data && typeof data.certificate_data === 'object') {
+                Object.entries(data.certificate_data).forEach(([id, value]) => {
+                    const field = document.getElementById(id);
+                    if (field && typeof value === 'string') field.value = value;
+                });
+            }
 
             // Handle photo
             const imgEl = document.getElementById('photo-preview');
@@ -1518,28 +1602,43 @@ function openCertPreview(certId, triggerBtn) {
             }
 
             // Show the designer overlay on the correct cert type (no modal needed)
-            document.getElementById('certDesignerOverlay').style.display = 'block';
+            const overlay = document.getElementById('certDesignerOverlay');
+            overlay.classList.add('cert-view-mode');
+            overlay.style.display = 'block';
             document.getElementById('stepSelect').style.display = 'none';
             document.getElementById('stepDesigner').style.display = 'block';
 
+            document.getElementById('certTypeDropdown').value = certKey;
             showCertFromDropdown(certKey);
+            document.getElementById('overlayTitle').textContent = 'View Certificate';
 
             window._pendingCertType = certKey;
+            window._pendingResId = data.resident_id;
+            window._pendingPurpose = purpose;
             window._savedCertId = certId;
 
             requestAnimationFrame(() => requestAnimationFrame(scaleCertificate));
 
-            // Restore trigger button state then call doPrint
+            // Restore the table button without starting a print job.
             if (btn) { btn.innerHTML = origHTML; btn.disabled = false; }
-
-            // Small delay so the overlay fully renders before capture
-            setTimeout(() => doPrint(), 350);
         })
         .catch(err => {
             console.error(err);
             if (btn) { btn.innerHTML = origHTML; btn.disabled = false; }
             alert('Could not load certificate data.');
         });
+}
+
+function openSavedCertificateEdit() {
+    if (!window._savedCertId) {
+        alert('Certificate record is not available for editing.');
+        return;
+    }
+
+    document.getElementById('certDesignerOverlay').classList.remove('cert-view-mode');
+    document.getElementById('overlayTitle').textContent = 'Edit Certificate';
+    const saveButton = document.getElementById('btnSave');
+    saveButton.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Changes';
 }
 
 // ── Searchable Resident Dropdown ──
@@ -1707,11 +1806,6 @@ function backToSelect() {
 
 // ── Save to DB then show print button ──
 function saveAndPreview() {
-    const resId = window._pendingResId;
-    const certType = window._pendingCertType;
-    const purpose = window._pendingPurpose;
-    if (!resId || !certType) { alert('Missing data. Please go back and fill in the form.'); return; }
-
     // Map designer cert type to DB cert type
     const typeMap = {
         clearance:  'Clearance',
@@ -1724,13 +1818,49 @@ function saveAndPreview() {
         soloparent: 'Solo Parent',
         lowincome:  'Proof of Low Income'
     };
+    const isEditing = Boolean(window._savedCertId);
+    const resId = window._pendingResId;
+    const certType = isEditing
+        ? document.getElementById('certTypeDropdown').value
+        : window._pendingCertType;
+    const purposeFieldIds = {
+        clearance: 'cl-f-purpose',
+        indigency: 'in-f-purpose',
+        residency: 're-f-purpose',
+        business: 'bu-f-business'
+    };
+    const purposeField = document.getElementById(purposeFieldIds[certType] || '');
+    const purpose = isEditing && purposeField ? purposeField.value.trim() : window._pendingPurpose;
+
+    if ((!isEditing && (!resId || !certType)) || (isEditing && !certType)) {
+        alert('Missing certificate data. Please reopen the certificate and try again.');
+        return;
+    }
+    if (isEditing && !purpose) {
+        alert('Please enter the certificate purpose before saving.');
+        if (purposeField) purposeField.focus();
+        return;
+    }
+
     const dbType = typeMap[certType] || certType;
 
     const fd = new FormData();
-    fd.append('ajax_issue', '1');
-    fd.append('resident_id', resId);
+    fd.append(isEditing ? 'ajax_update' : 'ajax_issue', '1');
+    if (isEditing) {
+        fd.append('cert_id', window._savedCertId);
+    } else {
+        fd.append('resident_id', resId);
+    }
     fd.append('certificate_type', dbType);
     fd.append('purpose', purpose);
+    const designerData = {};
+    [`tb-${certType}`, `cert-${certType}`].forEach(sectionId => {
+        document.querySelectorAll(`#${sectionId} input:not([type="file"]), #${sectionId} textarea, #${sectionId} select`)
+            .forEach(field => {
+                if (field.id) designerData[field.id] = field.value;
+            });
+    });
+    fd.append('certificate_data', JSON.stringify(designerData));
 
     // Include CSRF token from meta tag
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -1749,25 +1879,43 @@ function saveAndPreview() {
         })
         .then(data => {
             if (data.success) {
-                window._certIssued = true;
-                window._savedCertId = data.cert_id;
-                document.getElementById('overlayTitle').textContent = 'Certificate Preview — Ready to Print';
+                if (isEditing) {
+                    window._pendingCertType = certType;
+                    window._pendingPurpose = purpose;
+                    openCertView(window._savedCertId);
+                } else {
+                    window._certIssued = true;
+                    window._savedCertId = data.cert_id;
+                    document.getElementById('overlayTitle').textContent = 'Certificate Preview — Ready to Print';
+                }
                 // Restore button to normal state
                 if (saveBtn) {
                     saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="bi bi-floppy-fill me-1"></i>Save Record';
+                    saveBtn.innerHTML = isEditing
+                        ? '<i class="bi bi-check-lg me-1"></i>Save Changes'
+                        : '<i class="bi bi-floppy-fill me-1"></i>Save Record';
                 }
                 // Flash success bar
                 const bar = document.getElementById('saveSuccessBar');
                 if (bar) { bar.style.display = 'flex'; setTimeout(() => bar.style.display = 'none', 4000); }
             } else {
-                if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="bi bi-floppy-fill me-1"></i>Save Record'; }
-                alert('Error saving certificate. Please try again.');
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = isEditing
+                        ? '<i class="bi bi-check-lg me-1"></i>Save Changes'
+                        : '<i class="bi bi-floppy-fill me-1"></i>Save Record';
+                }
+                alert(isEditing ? 'Could not update certificate.' : 'Error saving certificate. Please try again.');
             }
         })
         .catch(err => {
-            if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="bi bi-floppy-fill me-1"></i>Save Record'; }
-            alert('Could not save: ' + err.message + '. Please check your connection and try again.');
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = isEditing
+                    ? '<i class="bi bi-check-lg me-1"></i>Save Changes'
+                    : '<i class="bi bi-floppy-fill me-1"></i>Save Record';
+            }
+            alert((isEditing ? 'Could not update: ' : 'Could not save: ') + err.message + '. Please check your connection and try again.');
         });
 }
 
@@ -2110,5 +2258,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-
-

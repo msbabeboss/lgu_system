@@ -1151,7 +1151,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                             <h6>View Archived Records</h6>
                             <p>Browse, restore, or permanently delete archived data</p>
                         </div>
-                        <a href="<?= BASE_URL ?>/barangay_admin/archive.php" class="btn btn-outline-primary btn-sm ms-auto">
+                        <a href="<?= BASE_URL ?>/barangay_admin/archive.php" target="_top" class="btn btn-outline-primary btn-sm ms-auto">
                             <i class="bi bi-arrow-up-right-square me-1"></i>Open Archive
                         </a>
                     </div>

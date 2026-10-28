@@ -43,8 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($archive['table_name'] === 'certificates') {
                 // Restore: re-insert the certificate row
                 $d = json_decode($archive['data_json'], true);
-                $db->prepare("INSERT INTO certificates (id,barangay_id,resident_id,certificate_type,purpose,issued_by,date_issued,created_at) VALUES (?,?,?,?,?,?,?,?)")
-                   ->execute([$d['id'],$d['barangay_id'],$d['resident_id'],$d['certificate_type'],$d['purpose'],$d['issued_by'],$d['date_issued'],$d['created_at']]);
+                $db->prepare("INSERT INTO certificates (id,barangay_id,resident_id,certificate_type,purpose,issued_by,date_issued,created_at,certificate_data) VALUES (?,?,?,?,?,?,?,?,?)")
+                   ->execute([$d['id'],$d['barangay_id'],$d['resident_id'],$d['certificate_type'],$d['purpose'],$d['issued_by'],$d['date_issued'],$d['created_at'],$d['certificate_data'] ?? null]);
             }
             $db->prepare("DELETE FROM archives WHERE id=?")->execute([$archiveId]);
             logActivity($u['id'], 'RESTORE_ARCHIVE', 'Archive', "Restored {$archive['table_name']} record for " . ucfirst($archive['table_name']));
@@ -149,7 +149,7 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
@@ -354,9 +354,7 @@ $pageSubtitle = 'Inactive or removed records.';
 $paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
 $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
 ?>
-<?php if ($totalPages > 1): ?>
 <?php $paginationBase = $paginationBase; $paginationLabel = 'archived record'; include __DIR__ . '/../includes/pagination.php'; ?>
-<?php endif; ?>
 
 <!-- Hidden Forms -->
 <form method="POST" id="archiveRestoreForm">
@@ -484,4 +482,3 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
-

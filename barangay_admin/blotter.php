@@ -403,7 +403,7 @@ $pageSubtitle = 'Record and track blotter cases and complaints.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         .btn-xs { padding:2px 8px; font-size:0.75rem; }
         .priority-card { border:2px solid #dee2e6; border-radius:10px; padding:10px 16px; cursor:pointer; transition:all 0.2s; text-align:center; }
@@ -1203,15 +1203,12 @@ if (empty($allEvents)): ?>
 </div>
 
 <!-- Pagination -->
-<?php if ($totalPages > 1): ?>
 <?php
     $queryParams = $_GET; unset($queryParams['page']);
     $baseQuery   = http_build_query($queryParams);
     $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
-    $window      = 2;
 ?>
-<?php $page = $currentPage; $totalCount = $totalRows; $offset = ($page-1)*$perPage; $paginationBase = $baseUrl; $paginationLabel = 'record'; include __DIR__ . '/../includes/pagination.php'; ?>
-<?php endif; ?>
+<?php $page = (int)$currentPage; $totalCount = $totalRows; $paginationBase = $baseUrl; $paginationLabel = 'record'; include __DIR__ . '/../includes/pagination.php'; ?>
 
 <?php endif; // end list / detail view ?>
 

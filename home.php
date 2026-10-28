@@ -162,9 +162,13 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
     verifyCsrfOrAbort();
     $username = sanitize($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
+    $loginRole = $_POST['login_role'] ?? '';
 
     if (!$username || !$password) {
         echo json_encode(['ok'=>false,'msg'=>'Please fill in all fields.']); exit;
+    }
+    if (!is_string($loginRole) || !in_array($loginRole, ['super_admin', 'barangay_admin'], true)) {
+        echo json_encode(['ok'=>false,'msg'=>'Please select your account type.']); exit;
     }
 
     // Load lockout settings
@@ -199,6 +203,9 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
     }
 
     if ($user && password_verify($password, $user['password'])) {
+        if ($user['role'] !== $loginRole) {
+            echo json_encode(['ok'=>false,'msg'=>'This account does not match the selected account type.']); exit;
+        }
         // Reset attempt counter on successful login
         $db->prepare("UPDATE users SET login_attempts=0, locked_until=NULL, login_locked=0 WHERE id=?")->execute([$user['id']]);
 
@@ -263,10 +270,19 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
 
 // ── Handle login POST (fallback non-AJAX) ─────────────────
 $loginError = '';
+$loginRoleInput = $_POST['login_role'] ?? '';
+$selectedLoginRole = is_string($loginRoleInput) && in_array($loginRoleInput, ['super_admin', 'barangay_admin'], true)
+    ? $loginRoleInput
+    : '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
     verifyCsrfOrAbort();
     $username = sanitize($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
+
+    if (!$selectedLoginRole) {
+        $loginError = 'Please select your account type.';
+        goto renderPage;
+    }
 
     if ($username && $password) {
         $maxAttempts = max(1, (int)$landingSetting('login_max_attempts',    '5'));
@@ -301,6 +317,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
         }
 
         if ($user && password_verify($password, $user['password'])) {
+            if ($user['role'] !== $selectedLoginRole) {
+                $loginError = 'This account does not match the selected account type.';
+                goto renderPage;
+            }
             $db->prepare("UPDATE users SET login_attempts=0, locked_until=NULL, login_locked=0 WHERE id=?")->execute([$user['id']]);
             if ($user['role']==='super_admin' && !empty($user['two_fa_enabled']) && !empty($user['totp_secret'])) {
                 $_SESSION['2fa_pending_user_id'] = $user['id'];
@@ -424,7 +444,7 @@ if ($urlResetToken) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
     <title>Centralized LGU Information Management System</title>
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=4.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=4.2">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -526,37 +546,8 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
         <div class="login-overlay-inner">
             <div class="card-flipper" id="cardFlipper">
 
-                    <!-- ═══ FACE 0: ROLE PICKER ═══ -->
-                    <div class="flip-face" id="faceRolePicker">
-                        <div class="login-card">
-                            <div class="login-header">
-                                <i class="fas fa-landmark"></i>
-                                <h3>Welcome</h3>
-                                <span class="role-hint">Select your account type to continue</span>
-                            </div>
-
-                            <div class="role-picker-grid">
-                                <button class="role-pick-btn" onclick="pickRole('super_admin')">
-                                    <div class="role-pick-icon"><i class="fas fa-shield-alt"></i></div>
-                                    <div class="role-pick-label">LGU System Admin</div>
-                                    <div class="role-pick-sub">Super Administrator</div>
-                                </button>
-                                <button class="role-pick-btn" onclick="pickRole('barangay_admin')">
-                                    <div class="role-pick-icon"><i class="fas fa-map-marker-alt"></i></div>
-                                    <div class="role-pick-label">Barangay Admin</div>
-                                    <div class="role-pick-sub">Barangay Officer</div>
-                                </button>
-                            </div>
-
-                            <div class="security-note" style="margin-top:18px;">
-                                <i class="fas fa-shield-alt"></i>
-                                <p>All data is protected under the <strong>Data Privacy Act of 2012</strong> (RA 10173)</p>
-                            </div>
-                        </div>
-                    </div><!-- /faceRolePicker -->
-
-                    <!-- ═══ FACE 1: LOGIN ═══ -->
-                    <div class="flip-face" id="faceLogin" style="display:none;">
+                    <!-- ═══ LOGIN ═══ -->
+                    <div class="flip-face" id="faceLogin">
                         <div class="login-card">
 
                             <!-- New-user yellow notice — always visible -->
@@ -566,16 +557,31 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
                             </div>
                             <div class="login-header">
                                 <i class="fas fa-lock" id="loginRoleIcon"></i>
-                                <h3 id="loginRoleTitle">System Login</h3>
+                                <h3 id="loginRoleTitle">Account Login</h3>
                                 <span class="role-hint" id="loginRoleHint">
-                                    <i class="fas fa-user-tag"></i> System Admin &nbsp;/&nbsp; Barangay Admin
+                                    <i class="fas fa-user-tag"></i> Select your account type
                                 </span>
                             </div>
 
-                            <form class="login-form" id="loginForm" onsubmit="submitLogin(event)">
+                            <form class="login-form" id="loginForm" method="POST" onsubmit="submitLogin(event)">
+                                <?= csrfField() ?>
                                 <!-- Honeypot fields: prevent browser password manager from attaching to our fields -->
                                 <input type="text"     style="display:none;" tabindex="-1" aria-hidden="true">
                                 <input type="password" style="display:none;" tabindex="-1" aria-hidden="true">
+                                <div class="login-role-options" role="radiogroup" aria-label="Select your account type">
+                                    <label class="login-role-option">
+                                        <input type="radio" name="login_role" value="super_admin" required
+                                            <?= $selectedLoginRole === 'super_admin' ? 'checked' : '' ?>
+                                            onchange="selectLoginRole(this.value)">
+                                        <span><i class="fas fa-shield-alt"></i> Super Admin</span>
+                                    </label>
+                                    <label class="login-role-option">
+                                        <input type="radio" name="login_role" value="barangay_admin" required
+                                            <?= $selectedLoginRole === 'barangay_admin' ? 'checked' : '' ?>
+                                            onchange="selectLoginRole(this.value)">
+                                        <span><i class="fas fa-map-marker-alt"></i> Barangay Admin</span>
+                                    </label>
+                                </div>
                                 <?php if ($loginError): ?>
                                 <div class="alert alert-error" id="loginAlert">
                                     <i class="fas fa-exclamation-circle"></i>
@@ -619,9 +625,6 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
                                 <div class="login-footer">
                                     <a href="#" class="forgot-password" onclick="showPanel('forgot');return false;">
                                         <i class="fas fa-question-circle"></i> Forgot Password?
-                                    </a>
-                                    <a href="#" class="forgot-password" onclick="showPanel('rolePicker');return false;" style="color:#94a3b8;">
-                                        <i class="fas fa-arrow-left"></i> Back to account type
                                     </a>
                                 </div>
                             </form>
@@ -1033,6 +1036,7 @@ function submitLogin(e) {
     e.preventDefault();
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
+    const loginRole = document.querySelector('input[name="login_role"]:checked')?.value || '';
     const btn      = document.getElementById('loginBtn');
     const errEl    = document.getElementById('loginAlert');
 
@@ -1040,6 +1044,10 @@ function submitLogin(e) {
 
     if (!username || !password) {
         showErr(errEl, 'Please fill in all fields.');
+        return;
+    }
+    if (!loginRole) {
+        showErr(errEl, 'Please select your account type.');
         return;
     }
 
@@ -1052,6 +1060,7 @@ function submitLogin(e) {
         body: 'ajax_action=login'
             + '&username=' + encodeURIComponent(username)
             + '&password=' + encodeURIComponent(password)
+            + '&login_role=' + encodeURIComponent(loginRole)
             + '&csrf_token=' + encodeURIComponent(document.querySelector('meta[name="csrf-token"]')?.content || '')
     })
     .then(r => r.json())
@@ -1128,8 +1137,8 @@ function submitLogin(e) {
 }
 
 // ── Panel switching with slide transition ──────────────────
-const panels = { rolePicker:'faceRolePicker', login:'faceLogin', forgot:'faceForgot', reset:'faceReset', changePassword:'faceChangePassword', recovery:'faceRecovery' };
-let currentPanel = 'rolePicker';
+const panels = { login:'faceLogin', forgot:'faceForgot', reset:'faceReset', changePassword:'faceChangePassword', recovery:'faceRecovery' };
+let currentPanel = 'login';
 let isAnimating  = false;
 
 function showPanel(name) {
@@ -1174,34 +1183,30 @@ function openLoginPanel() {
     if (!overlay) return;
     const notice = document.getElementById('signupNotice');
     if (notice) notice.style.display = 'flex';
-    showPanel('rolePicker');
+    showPanel('login');
     overlay.style.display = 'flex';
     requestAnimationFrame(() => overlay.classList.add('overlay-visible'));
     document.body.style.overflow = 'hidden';
     document.querySelectorAll('.page-section').forEach(s => s.style.overflow = 'hidden');
 }
 
-function pickRole(role) {
+function selectLoginRole(role) {
     const icon  = document.getElementById('loginRoleIcon');
     const title = document.getElementById('loginRoleTitle');
     const hint  = document.getElementById('loginRoleHint');
     if (role === 'super_admin') {
         icon.className  = 'fas fa-shield-alt';
         icon.style.color = '#052659';
-        title.textContent = 'LGU System Admin Login';
+        title.textContent = 'Super Admin Login';
         hint.innerHTML  = '<i class="fas fa-shield-alt"></i> Super Administrator';
-    } else {
+    } else if (role === 'barangay_admin') {
         icon.className  = 'fas fa-map-marker-alt';
         icon.style.color = '#5483B3';
         title.textContent = 'Barangay Admin Login';
         hint.innerHTML  = '<i class="fas fa-map-marker-alt"></i> Barangay Officer';
     }
-    // Clear previous input
-    document.getElementById('username').value = '';
-    document.getElementById('password').value = '';
     const err = document.getElementById('loginAlert');
     if (err) err.style.display = 'none';
-    showPanel('login');
 }
 
 function closeLoginOverlay() {
@@ -1235,12 +1240,13 @@ let loginPanelOpen = true;
 
 document.addEventListener('DOMContentLoaded', () => {
     // Ensure correct initial state
-    document.getElementById('faceRolePicker').style.display      = 'block';
-    document.getElementById('faceLogin').style.display           = 'none';
+    document.getElementById('faceLogin').style.display           = 'block';
     document.getElementById('faceForgot').style.display        = 'none';
     document.getElementById('faceReset').style.display         = 'none';
     document.getElementById('faceChangePassword').style.display= 'none';
     document.getElementById('faceRecovery').style.display      = 'none';
+    const selectedRole = document.querySelector('input[name="login_role"]:checked');
+    if (selectedRole) selectLoginRole(selectedRole.value);
 
     // ── Load live stats from database ─────────────────────
     function animateCount(el, target) {

@@ -316,7 +316,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
     <style>
         /* ── Officials modal shared styles ── */
         .off-field-label {
@@ -433,8 +433,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                         <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
                     </a>
                     <button type="button" class="btn btn-sm btn-success fw-semibold"
-                            data-bs-toggle="modal" data-bs-target="#officialModal"
-                            onclick="resetOfficialForm()">
+                            onclick="bootstrap.Modal.getOrCreateInstance(document.getElementById('officialModal')).show(); if (typeof resetOfficialForm === 'function') resetOfficialForm();">
                         <i class="bi bi-person-badge-fill me-1"></i>Add Official
                     </button>
                 </div>
@@ -518,16 +517,16 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
                         </td>
                         <td class="pe-4 py-3" style="border:none;">
                             <div class="d-flex gap-1">
-                                <button class="btn btn-xs btn-outline-info"
+                                <button type="button" class="btn btn-xs btn-outline-info"
                                         onclick="viewOfficial(<?= htmlspecialchars(json_encode($off)) ?>)"
                                         title="View">
                                     <i class="bi bi-eye"></i>
                                 </button>
-                                <button class="btn btn-xs btn-outline-primary" onclick="editOfficial(<?= htmlspecialchars(json_encode($off)) ?>)" title="Edit">
+                                <button type="button" class="btn btn-xs btn-outline-primary" onclick="editOfficial(<?= htmlspecialchars(json_encode($off)) ?>)" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <?php if ($off['status'] === 'active' || $isTransferred): ?>
-                                <button class="btn btn-xs <?= $isTransferred ? 'btn-outline-secondary' : ($isTermEnded ? 'btn-outline-danger' : 'btn-outline-warning') ?>"
+                                <button type="button" class="btn btn-xs <?= $isTransferred ? 'btn-outline-secondary' : ($isTermEnded ? 'btn-outline-danger' : 'btn-outline-warning') ?>"
                                         onclick="openArchiveOfficialModal(<?= $off['id'] ?>, '<?= htmlspecialchars(addslashes($off['full_name'])) ?>', '<?= $off['term_end'] ?>')"
                                         title="Archive">
                                     <i class="bi bi-archive"></i>
@@ -544,15 +543,12 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
     </div>
 
     <!-- Pagination -->
-    <?php if ($totalPages > 1): ?>
     <?php
         $queryParams = $_GET; unset($queryParams['page']);
         $baseQuery   = http_build_query($queryParams);
         $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
-        $window = 2;
     ?>
     <?php $page = $currentPage; $totalCount = $totalRows; $offset = $listOffset; $paginationBase = $baseUrl; $paginationLabel = 'official'; include __DIR__ . '/../includes/pagination.php'; ?>
-    <?php endif; ?>
 </div>
 
 <!-- Add/Edit Official Modal -->
@@ -1565,5 +1561,3 @@ function escHtml(s) {
 <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
 </body>
 </html>
-
-

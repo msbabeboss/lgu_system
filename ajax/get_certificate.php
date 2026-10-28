@@ -8,7 +8,7 @@ $bid = (int)$u['barangay_id'];
 $id  = (int)($_GET['id'] ?? 0);
 
 $stmt = $db->prepare("
-    SELECT c.certificate_type, c.purpose, c.date_issued,
+    SELECT c.certificate_type, c.purpose, c.date_issued, c.certificate_data,
            r.id AS resident_id, r.first_name, r.middle_name, r.last_name, r.suffix,
            r.age, r.gender, r.civil_status, r.birthdate, r.photo,
            a.purok
@@ -53,6 +53,7 @@ $yearStr    = $row['date_issued'] ? date('Y',  strtotime($row['date_issued'])) :
 $yearLast   = $row['date_issued'] ? date('y',  strtotime($row['date_issued'])) : '';
 // For Solo Parent the year field uses last digit only
 $yearLastDigit = $yearStr ? substr($yearStr, -1) : '';
+$certificateData = $row['certificate_data'] ? json_decode($row['certificate_data'], true) : null;
 
 jsonResponse([
     'cert_type'   => $row['certificate_type'],
@@ -71,4 +72,5 @@ jsonResponse([
     'year'        => $yearStr,
     'year_last'   => $yearLastDigit,
     'date_issued' => $dateIssued,
+    'certificate_data' => is_array($certificateData) ? $certificateData : null,
 ]);

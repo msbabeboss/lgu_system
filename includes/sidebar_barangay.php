@@ -3,6 +3,11 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 $u = currentUser();
 $settingsOpen = in_array($currentPage, ['settings.php']);
 ?>
+<script>
+if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1') {
+    document.body.classList.add('sidebar-collapsed');
+}
+</script>
 <aside class="sidebar" id="sidebar">
     <!-- Map background overlay -->
     <div class="sidebar-map-bg"></div>
