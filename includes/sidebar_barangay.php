@@ -150,8 +150,8 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <div id="sidebarProfileName" class="user-name"><?= htmlspecialchars($u['name']) ?></div>
             <div class="user-role">Barangay Admin</div>
         </div>
-        <a href="<?= BASE_URL ?>/logout.php" class="sidebar-logout" title="Logout">
+        <button type="submit" form="logoutForm" class="sidebar-logout" title="Logout" aria-label="Logout">
             <i class="bi bi-box-arrow-right"></i>
-        </a>
+        </button>
     </div>
 </aside>

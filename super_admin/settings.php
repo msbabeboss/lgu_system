@@ -2540,7 +2540,7 @@ function doChangePassword() {
             document.getElementById('cpConfirmStep').style.display = 'none';
             showCPAlert('success', '<i class="bi bi-check-circle-fill me-1"></i>' + data.msg);
             // Log out after 2 seconds
-            setTimeout(() => { window.location.href = '<?= BASE_URL ?>/logout.php'; }, 2000);
+            setTimeout(() => { document.getElementById('logoutForm').submit(); }, 2000);
         } else {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Yes, Change It';

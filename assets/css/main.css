@@ -975,11 +975,15 @@ textarea.form-control:focus {
     width: 30px; height: 30px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
+    border: 0;
+    padding: 0;
+    background: transparent;
     color: rgba(193,232,255,0.60);
     font-size: 1rem;
     transition: all 0.2s;
     flex-shrink: 0;
     text-decoration: none;
+    cursor: pointer;
 }
 .sidebar-logout:hover {
     background: rgba(255,80,80,0.25);

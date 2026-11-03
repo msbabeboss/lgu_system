@@ -67,6 +67,7 @@ Legend:
 | `create_emergency_admin.php` | — | — | **File deleted** — removed from project |
 | `landing.php` | ✅ L65, L98, L126, L159, L229 | meta tag + form | Complex multi-step login; refreshes token after each step |
 | `verify_2fa.php` | ✅ L28 | ✅ L111 | — |
+| `logout.php` | ✅ POST-only | ✅ shared `logoutForm` in `includes/topbar.php` | — | Direct GET requests are rejected |
 
 ---
 
