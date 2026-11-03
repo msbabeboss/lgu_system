@@ -168,14 +168,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     sendNotification($u['id'], $notifMsg, 'success', 'resident');
     // Peer barangay admins in the same barangay (exclude self)
     notifyBarangayAdmins($bid, $notifMsg, 'success', 'resident', $u['id']);
-    // Notify all super admins so they see barangay activity in real time
-    notifySuperAdmins($notifMsg, 'info', 'resident');
-
-    // ── Email confirmation to the admin who added the resident ────────────
-    if ($u['email']) {
-        $brgyNameRes = $db->query("SELECT barangay_name FROM barangays WHERE id=$bid")->fetchColumn() ?: '';
-        sendResidentAddedEmail($u['email'], $u['name'], "$fname $lname", $brgyNameRes, $gender, $bdate, $age, $civil, $occup);
-    }
 
     // ── If this resident was registered from an official, log it ──────────
     $fromOfficialId = (int)($_POST['from_official_id'] ?? 0);
@@ -189,7 +181,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->prepare("UPDATE residents SET official_id=?, official_position=? WHERE id=?")
                ->execute([$fromOfficialId, $offRow['position'], $newResidentId]);
             logActivity($u['id'], 'ADD_RESIDENT', 'Residents',
-                "Registered {$fname} {$lname} as resident from Officials page (official ID #$fromOfficialId — {$offRow['position']})");
+                "Registered {$fname} {$lname} as resident from Officials page (official ID #$fromOfficialId — {$offRow['position']})",
+                false);
         }
     }
 
@@ -220,7 +213,7 @@ $fromOfficial = !empty($prefill);
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
     <style>
         /* ── Select2 skin to match Bootstrap ── */
@@ -561,7 +554,7 @@ $fromOfficial = !empty($prefill);
                                 <select name="civil_status" class="form-select" required>
                                     <option value="">Select</option>
                                     <option>Single</option><option>Married</option><option>Widowed</option>
-                                    <option>Separated</option><option>Annulled</option>
+                                    <option>Separated</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
@@ -832,7 +825,6 @@ $(document).ready(function () {
         placeholder: '— Type surname or household code —',
         allowClear: true,
         width: '100%',
-        dropdownParent: $('#hhMemberFields'),
         matcher: function (params, data) {
             // Match against the full text (code + head name)
             if ($.trim(params.term) === '') return data;

@@ -30,11 +30,6 @@ try {
 
 // Seed defaults if not present
 $defaults = [
-    'login_max_attempts'     => '5',
-    'login_lockout_seconds'  => '300',
-    'idle_timeout_enabled'   => '1',
-    'idle_timeout_minutes'   => '5',
-    'idle_timeout_unit'      => 'minutes',
     'session_timeout_minutes'=> '60',
     'archive_auto_enabled'   => '0',
     'archive_after_months'   => '3',
@@ -72,6 +67,7 @@ if (!in_array($tab, $validTabs)) $tab = 'profile';
 $isFrame = isset($_GET['frame']) && $_GET['frame'] === '1';
 $isAjax  = !empty($_GET['ajax'])  && $_GET['ajax']  === '1' && strtoupper($_SERVER['REQUEST_METHOD']) === 'GET';
 $autoOpenChangePw = isset($_GET['action']) && $_GET['action'] === 'change_pw';
+$settingsFrameParam = $isFrame ? '&frame=1' : '';
 
 $flash = getFlash('ba_settings');
 
@@ -91,74 +87,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Profile ────────────────────────────────────────────
     if ($action === 'save_profile') {
-        $fname   = sanitize($_POST['first_name']  ?? '');
-        $lname   = sanitize($_POST['last_name']   ?? '');
-        $mname   = sanitize($_POST['middle_name'] ?? '');
-        $email   = sanitize($_POST['email']       ?? '');
-        $contact = sanitize($_POST['contact']     ?? '');
-        $pos     = sanitize($_POST['position']    ?? '');
-        if ($contact && !preg_match('/^09\d{9}$/', $contact)) {
+        $fname   = trim(strip_tags((string)($_POST['first_name']  ?? '')));
+        $lname   = trim(strip_tags((string)($_POST['last_name']   ?? '')));
+        $mname   = trim(strip_tags((string)($_POST['middle_name'] ?? '')));
+        $email   = trim(strip_tags((string)($_POST['email']       ?? '')));
+        $contact = trim(strip_tags((string)($_POST['contact']     ?? '')));
+        $pos     = trim(strip_tags((string)($_POST['position']    ?? '')));
+        if (!$fname || !$lname || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash('ba_settings', 'Enter a valid first name, last name, and email address.', 'danger');
+        } elseif ($contact && !preg_match('/^09\d{9}$/', $contact)) {
             flash('ba_settings', 'Contact number must be 11 digits starting with 09.', 'danger');
         } else {
-            $db->prepare("UPDATE users SET first_name=?,middle_name=?,last_name=?,email=?,contact_number=?,position=? WHERE id=?")
-               ->execute([$fname, $mname, $lname, $email, $contact, $pos, $u['id']]);
-            $_SESSION['user_name']  = "$fname $lname";
-            $_SESSION['user_email'] = $email;
-            logActivity($u['id'], 'UPDATE_PROFILE', 'Settings', 'Updated own profile');
-            flash('ba_settings', 'Profile updated successfully.', 'success');
-        }
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile');
-    }
+            $photoDir = UPLOAD_PATH . 'profile_photos/';
+            $photoStmt = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
+            $photoStmt->execute([$u['id']]);
+            $oldPhoto = $photoStmt->fetchColumn() ?: null;
+            $profilePhoto = ($_POST['remove_profile_photo'] ?? '0') === '1' ? null : $oldPhoto;
+            $newPhotoPath = null;
+            $upload = $_FILES['profile_photo'] ?? null;
+            $uploadError = $upload['error'] ?? UPLOAD_ERR_NO_FILE;
+            $uploadMessage = null;
 
-    // ── Profile Photo Upload ───────────────────────────────
-    if ($action === 'save_profile_photo') {
-        $photoDir = UPLOAD_PATH . 'profile_photos/';
-        if (!is_dir($photoDir)) mkdir($photoDir, 0755, true);
+            if ($uploadError !== UPLOAD_ERR_NO_FILE) {
+                if ($uploadError !== UPLOAD_ERR_OK) {
+                    $uploadErrors = [
+                        UPLOAD_ERR_INI_SIZE   => 'Photo exceeds the server upload limit.',
+                        UPLOAD_ERR_FORM_SIZE  => 'Photo exceeds the upload limit.',
+                        UPLOAD_ERR_PARTIAL    => 'Photo was only partially uploaded.',
+                        UPLOAD_ERR_NO_TMP_DIR => 'The server upload folder is unavailable.',
+                        UPLOAD_ERR_CANT_WRITE => 'The server could not save the uploaded photo.',
+                    ];
+                    $uploadMessage = $uploadErrors[$uploadError] ?? 'The photo upload failed. Please try again.';
+                } elseif ($upload['size'] > 2 * 1024 * 1024) {
+                    $uploadMessage = 'File too large. Maximum allowed size is 2 MB.';
+                } elseif (!is_uploaded_file($upload['tmp_name'])) {
+                    $uploadMessage = 'The selected photo was not received. Please choose it again.';
+                } else {
+                    $extension = strtolower(pathinfo($upload['name'], PATHINFO_EXTENSION));
+                    $mimeExtensions = [
+                        'image/jpeg' => ['jpg', 'jpeg', 'jfif'],
+                        'image/png'  => ['png'],
+                        'image/gif'  => ['gif'],
+                        'image/webp' => ['webp'],
+                    ];
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mime = $finfo ? finfo_file($finfo, $upload['tmp_name']) : false;
+                    if ($finfo) finfo_close($finfo);
+                    $imageInfo = @getimagesize($upload['tmp_name']);
 
-        if (($_POST['remove_photo'] ?? '0') === '1') {
-            // Remove existing photo
-            $cur = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-            $cur->execute([$u['id']]);
-            $old = $cur->fetchColumn();
-            if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
-            $db->prepare("UPDATE users SET profile_photo=NULL WHERE id=?")->execute([$u['id']]);
-            $_SESSION['user_photo'] = null;
-            logActivity($u['id'], 'REMOVE_PROFILE_PHOTO', 'Settings', 'Removed profile photo');
-            flash('ba_settings', 'Profile photo removed.', 'info');
-        } elseif (!empty($_FILES['profile_photo']['name']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-            $file    = $_FILES['profile_photo'];
-            $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg','jpeg','jfif','png','gif','webp'];
-            $finfo   = finfo_open(FILEINFO_MIME_TYPE);
-            $mime    = finfo_file($finfo, $file['tmp_name']);
-            finfo_close($finfo);
-            $allowedMime = ['image/jpeg','image/png','image/gif','image/webp'];
-
-            if (!in_array($ext, $allowed) || !in_array($mime, $allowedMime)) {
-                flash('ba_settings', 'Invalid file type. Only JPG, PNG, GIF, and WEBP are allowed.', 'danger');
-            } elseif ($file['size'] > 2 * 1024 * 1024) {
-                flash('ba_settings', 'File too large. Maximum allowed size is 2 MB.', 'danger');
-            } else {
-                // Delete old photo
-                $cur = $db->prepare("SELECT profile_photo FROM users WHERE id=?");
-                $cur->execute([$u['id']]);
-                $old = $cur->fetchColumn();
-                if ($old && file_exists($photoDir . $old)) @unlink($photoDir . $old);
-
-                // Resize to 200×200px max and save as WebP (falls back to JPEG if WebP unavailable)
-                $baseName = 'user_' . $u['id'] . '_' . time();
-                try {
-                    $fname = resizeAndSaveImage($file['tmp_name'], $mime, $photoDir, $baseName, 200, 200, 85);
-                    $db->prepare("UPDATE users SET profile_photo=? WHERE id=?")->execute([$fname, $u['id']]);
-                    $_SESSION['user_photo'] = $fname;
-                    logActivity($u['id'], 'UPDATE_PROFILE_PHOTO', 'Settings', 'Updated profile photo');
-                    flash('ba_settings', 'Profile photo updated successfully.', 'success');
-                } catch (\Throwable $e) {
-                    flash('ba_settings', 'Failed to save the uploaded file. Please try again.', 'danger');
+                    if (!is_string($mime) || !isset($mimeExtensions[$mime])
+                        || !in_array($extension, $mimeExtensions[$mime], true)
+                        || !$imageInfo || ($imageInfo['mime'] ?? '') !== $mime) {
+                        $uploadMessage = 'Invalid image. Please use a JPG, JFIF, PNG, GIF, or WEBP file.';
+                    } elseif (!is_dir($photoDir) && !mkdir($photoDir, 0755, true) && !is_dir($photoDir)) {
+                        $uploadMessage = 'Could not create the profile photo folder.';
+                    } else {
+                        $safeExtension = $mime === 'image/jpeg' ? 'jpg' : substr($mime, 6);
+                        $filename = 'user_' . (int)$u['id'] . '_' . bin2hex(random_bytes(8)) . '.' . $safeExtension;
+                        $newPhotoPath = $photoDir . $filename;
+                        if (!move_uploaded_file($upload['tmp_name'], $newPhotoPath)) {
+                            $newPhotoPath = null;
+                            $uploadMessage = 'Could not save the photo. Check upload folder permissions and try again.';
+                        } else {
+                            $profilePhoto = $filename;
+                        }
+                    }
                 }
             }
+
+            if ($uploadMessage !== null) {
+                flash('ba_settings', $uploadMessage, 'danger');
+                redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile' . $settingsFrameParam);
+            }
+
+            try {
+                $db->beginTransaction();
+                $db->prepare("UPDATE users SET first_name=?,middle_name=?,last_name=?,email=?,contact_number=?,position=?,profile_photo=? WHERE id=?")
+                   ->execute([$fname, $mname, $lname, $email, $contact, $pos, $profilePhoto, $u['id']]);
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                if ($newPhotoPath && is_file($newPhotoPath)) unlink($newPhotoPath);
+                error_log('[Barangay admin profile save] ' . $e->getMessage());
+                flash('ba_settings', 'Could not save your profile. Please try again.', 'danger');
+                redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile' . $settingsFrameParam);
+            }
+
+            if ($oldPhoto && $oldPhoto !== $profilePhoto && basename($oldPhoto) === $oldPhoto
+                && is_file($photoDir . $oldPhoto) && !unlink($photoDir . $oldPhoto)) {
+                error_log('[Barangay admin profile photo] Could not remove replaced photo file: ' . $photoDir . $oldPhoto);
+            }
+            $_SESSION['user_name']  = "$fname $lname";
+            $_SESSION['user_email'] = $email;
+            $_SESSION['user_photo'] = $profilePhoto;
+            logActivity($u['id'], 'UPDATE_PROFILE', 'Settings', 'Updated own profile');
+            flash('ba_settings', 'Profile updated successfully.', 'success');
+            $profileSavedParam = $isFrame ? '&profile_saved=1' : '';
+            redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile' . $settingsFrameParam . $profileSavedParam);
         }
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile' . $settingsFrameParam);
     }
 
     // ── Change Password (AJAX) ─────────────────────────────
@@ -191,28 +218,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Security ───────────────────────────────────────────
     if ($action === 'save_security') {
-        $maxAttempts   = max(1,  min(20,    (int)($_POST['login_max_attempts']    ?? 5)));
-        $lockoutSecs   = max(30, min(86400, (int)($_POST['login_lockout_seconds'] ?? 300)));
-        $idleEnabled   = isset($_POST['idle_timeout_enabled']) ? '1' : '0';
-        $idleUnit      = in_array($_POST['idle_timeout_unit'] ?? '', ['seconds','minutes'])
-                            ? $_POST['idle_timeout_unit'] : 'minutes';
-        $idleVal       = (int)($_POST['idle_timeout_minutes'] ?? 5);
-        // Clamp based on unit
-        if ($idleUnit === 'seconds') {
-            $idleVal = max(10, min(300, $idleVal));
-        } else {
-            $idleVal = max(1,  min(120, $idleVal));
-        }
-
-        baSaveSetting($db, 'login_max_attempts',    (string)$maxAttempts, $u['id']);
-        baSaveSetting($db, 'login_lockout_seconds', (string)$lockoutSecs, $u['id']);
-        baSaveSetting($db, 'idle_timeout_enabled',   $idleEnabled,         $u['id']);
-        baSaveSetting($db, 'idle_timeout_minutes',   (string)$idleVal,     $u['id']);
-        baSaveSetting($db, 'idle_timeout_unit',      $idleUnit,            $u['id']);
-
-        logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated Security settings');
-        flash('ba_settings', 'Security settings saved.', 'success');
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=security');
+        flash('ba_settings', 'Only a Super Admin can change global login and idle timeout settings.', 'danger');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=security' . $settingsFrameParam);
     }
 
     // ── Archive ────────────────────────────────────────────
@@ -225,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated Archive settings');
         flash('ba_settings', 'Archive settings saved.', 'success');
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=archive');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=archive' . $settingsFrameParam);
     }
 
     // ── Preferences ────────────────────────────────────────
@@ -237,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated notification preferences');
         flash('ba_settings', 'Notification preferences saved.', 'success');
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=preferences');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=preferences' . $settingsFrameParam);
     }
 
     // ── 2FA: Generate secret ───────────────────────────────
@@ -246,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $secret = TOTP::generateSecret();
         $db->prepare("UPDATE users SET totp_secret=? WHERE id=?")->execute([$secret, $u['id']]);
         flash('ba_settings', 'Scan the QR code with your authenticator app, then verify to enable 2FA.', 'info');
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator' . $settingsFrameParam);
     }
 
     // ── 2FA: Enable (verify code) ──────────────────────────
@@ -266,7 +273,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             logActivity($u['id'], 'ENABLE_2FA', 'Security', '2FA enabled');
             flash('ba_settings', '✅ Two-Factor Authentication has been enabled on your account.', 'success');
         }
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator' . $settingsFrameParam);
     }
 
     // ── 2FA: Disable ──────────────────────────────────────
@@ -274,7 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->prepare("UPDATE users SET two_fa_enabled=0, totp_secret=NULL WHERE id=?")->execute([$u['id']]);
         logActivity($u['id'], 'DISABLE_2FA', 'Security', '2FA disabled');
         flash('ba_settings', '2FA has been disabled on your account.', 'warning');
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=authenticator' . $settingsFrameParam);
     }
 
     // ── Barangay Logo Upload ───────────────────────────────
@@ -309,6 +316,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $db->prepare("UPDATE barangays SET logo_path=? WHERE id=?")
                        ->execute([$fname, $bid]);
                     logActivity($u['id'], 'UPDATE_BARANGAY_LOGO', 'Settings', 'Updated barangay logo');
+                    notifySuperAdmins(
+                        "Barangay settings updated: <strong>" . htmlspecialchars($brgy['barangay_name'] ?? 'Barangay') . "</strong> logo was changed.",
+                        'info',
+                        'system'
+                    );
                     flash('ba_settings', 'Barangay logo updated successfully.', 'success');
                 } else {
                     flash('ba_settings', 'Failed to save the uploaded file. Please try again.', 'danger');
@@ -321,13 +333,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $db->prepare("UPDATE barangays SET logo_path=NULL WHERE id=?")->execute([$bid]);
             logActivity($u['id'], 'REMOVE_BARANGAY_LOGO', 'Settings', 'Removed barangay logo');
+            notifySuperAdmins(
+                "Barangay settings updated: <strong>" . htmlspecialchars($brgy['barangay_name'] ?? 'Barangay') . "</strong> logo was removed.",
+                'info',
+                'system'
+            );
             flash('ba_settings', 'Barangay logo removed.', 'info');
         }
 
         // Re-fetch brgy after update
         $brgyStmt->execute([$bid]);
         $brgy = $brgyStmt->fetch() ?: [];
-        redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile');
+        redirect(BASE_URL . '/barangay_admin/settings.php?tab=profile' . $settingsFrameParam);
     }
 }
 
@@ -349,10 +366,11 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .main-content { animation: none !important; contain: none !important; padding: 20px 24px 0 22px !important; overflow: hidden; }
         .settings-shell-wrap { display: flex; gap: 24px; align-items: flex-start; height: calc(100vh - var(--topbar-height, 80px) - 20px); overflow-y: auto; }
+        #settingsShellWrap[data-tab="security"] { overflow: hidden; }
         .settings-sidebar { width: 220px; min-width: 220px; flex-shrink: 0; background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.8); border-radius: 16px; padding: 12px 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); align-self: flex-start; position: sticky; top: 0; max-height: calc(100vh - var(--topbar-height, 80px) - 20px); overflow-y: auto; transform: translateZ(0); backface-visibility: hidden; isolation: isolate; }
         .settings-sidebar .s-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #3a7fa8; padding: 6px 12px 4px; }
         .settings-sidebar .s-link { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 10px; font-size: 0.875rem; font-weight: 500; color: #2a5070; text-decoration: none; transition: background 0.15s, color 0.15s; margin-bottom: 2px; }
@@ -368,7 +386,7 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
 <?php include __DIR__ . '/../includes/topbar.php'; ?>
 <div class="main-content">
-    <div class="settings-shell-wrap">
+    <div class="settings-shell-wrap" id="settingsShellWrap" data-tab="<?= htmlspecialchars($curTab, ENT_QUOTES, 'UTF-8') ?>">
         <nav class="settings-sidebar">
             <div class="s-title">Settings</div>
             <?php
@@ -376,7 +394,7 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
                 'profile'       => ['bi-person-fill',       'Profile'],
                 'security'      => ['bi-shield-lock-fill',  'Security'],
                 'archive'       => ['bi-archive-fill',      'Archive'],
-                'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
+                'authenticator' => ['bi-shield-check', 'Authenticator'],
             ];
             foreach ($shellNavItems as $t => [$icon, $label]):
             ?>
@@ -395,7 +413,7 @@ if (!$isFrame && $_SERVER['REQUEST_METHOD'] !== 'POST') {
         <iframe id="settingsFrame"
                 src="<?= BASE_URL ?>/barangay_admin/settings.php?tab=<?= urlencode($curTab) ?>&frame=1"
                 frameborder="0"
-                scrolling="yes">
+                scrolling="<?= $curTab === 'security' ? 'no' : 'yes' ?>">
         </iframe>
     </div>
 </div>
@@ -468,6 +486,8 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 var _curTab = '<?= $curTab ?>';
 function switchTab(tab) {
     _curTab = tab;
+    document.getElementById('settingsShellWrap').dataset.tab = tab;
+    document.getElementById('settingsFrame').setAttribute('scrolling', tab === 'security' ? 'no' : 'yes');
     document.querySelectorAll('.settings-sidebar .s-link[onclick]').forEach(function(el) {
         var m = el.getAttribute('onclick').match(/switchTab\('([^']+)'\)/);
         if (m) el.classList.toggle('active', m[1] === tab);
@@ -477,6 +497,10 @@ function switchTab(tab) {
 
 function autoResizeFrame() {
     var frame = document.getElementById('settingsFrame');
+    if (_curTab === 'security') {
+        frame.style.height = '';
+        return;
+    }
     try {
         var h = frame.contentWindow.document.documentElement.scrollHeight;
         if (h > 200) frame.style.height = h + 'px';
@@ -484,6 +508,64 @@ function autoResizeFrame() {
 }
 document.getElementById('settingsFrame').addEventListener('load', function() {
     setTimeout(autoResizeFrame, 80);
+});
+window.addEventListener('message', function(event) {
+    var frame = document.getElementById('settingsFrame');
+    if (event.origin !== window.location.origin
+        || event.source !== frame.contentWindow
+        || event.data?.type !== 'barangay-profile-saved') return;
+
+    var data = event.data;
+    var sidebarAvatar = document.getElementById('sidebarProfileAvatar');
+    var topbarAvatar = document.getElementById('topbarProfileAvatar');
+    var initials = String(data.initials || '');
+
+    if (sidebarAvatar) {
+        sidebarAvatar.replaceChildren();
+        sidebarAvatar.dataset.fallback = initials;
+        if (data.photoUrl) {
+            var sidebarImage = document.createElement('img');
+            sidebarImage.src = data.photoUrl;
+            sidebarImage.alt = 'Profile';
+            sidebarImage.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
+            sidebarImage.onerror = function() {
+                sidebarAvatar.textContent = initials;
+                sidebarAvatar.style.background = 'rgba(193,232,255,0.18)';
+            };
+            sidebarAvatar.style.background = 'none';
+            sidebarAvatar.appendChild(sidebarImage);
+        } else {
+            sidebarAvatar.textContent = initials;
+            sidebarAvatar.style.background = 'rgba(193,232,255,0.18)';
+        }
+    }
+
+    if (topbarAvatar) {
+        topbarAvatar.replaceChildren();
+        if (data.photoUrl) {
+            var topbarImage = document.createElement('img');
+            topbarImage.src = data.photoUrl;
+            topbarImage.alt = 'Profile';
+            topbarImage.width = 28;
+            topbarImage.height = 28;
+            topbarImage.style.cssText = 'width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;';
+            topbarImage.onerror = function() {
+                var fallbackIcon = document.createElement('i');
+                fallbackIcon.className = 'bi bi-person-circle fs-5';
+                topbarAvatar.replaceChildren(fallbackIcon);
+            };
+            topbarAvatar.appendChild(topbarImage);
+        } else {
+            var fallbackIcon = document.createElement('i');
+            fallbackIcon.className = 'bi bi-person-circle fs-5';
+            topbarAvatar.appendChild(fallbackIcon);
+        }
+    }
+
+    ['sidebarProfileName', 'topbarProfileName', 'topbarProfileMenuName'].forEach(function(id) {
+        var nameElement = document.getElementById(id);
+        if (nameElement) nameElement.textContent = data.name || '';
+    });
 });
 
 function openCPModal()  { document.getElementById('changePasswordModal').style.display = 'flex'; }
@@ -586,7 +668,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .settings-wrap {
             display: flex;
@@ -688,6 +770,10 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
         .settings-wrap { display: block !important; }
         .settings-content { display: block !important; margin-left: 0 !important; }
         <?php endif; ?>
+        <?php if ($isFrame && $tab === 'security'): ?>
+        html, body { height: 100%; overflow: hidden !important; }
+        .main-content { box-sizing: border-box; height: 100%; min-height: 0 !important; padding-bottom: 0 !important; overflow: hidden !important; }
+        <?php endif; ?>
     </style>
 </head>
 <body>
@@ -714,7 +800,7 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                 'profile'       => ['bi-person-fill',       'Profile'],
                 'security'      => ['bi-shield-lock-fill',  'Security'],
                 'archive'       => ['bi-archive-fill',       'Archive'],
-                'authenticator' => ['bi-shield-check-fill', 'Authenticator'],
+                'authenticator' => ['bi-shield-check', 'Authenticator'],
                 'preferences'   => ['bi-bell-fill',         'Preferences'],
             ];
             foreach ($navItems as $t => [$icon, $label]):
@@ -750,47 +836,44 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                 <div class="sc-body">
                     <?php
                     $myPhoto    = $self['profile_photo'] ?? '';
-                    $myPhotoUrl = $myPhoto ? UPLOAD_URL . 'profile_photos/' . $myPhoto : '';
+                    $myPhotoPath = $myPhoto ? UPLOAD_PATH . 'profile_photos/' . $myPhoto : '';
+                    $myPhotoVersion = $myPhotoPath && is_file($myPhotoPath) ? filemtime($myPhotoPath) : '';
+                    $myPhotoUrl = $myPhoto && $myPhotoVersion
+                        ? UPLOAD_URL . 'profile_photos/' . rawurlencode($myPhoto) . '?v=' . $myPhotoVersion
+                        : '';
+                    $profileInitials = strtoupper(substr($self['first_name'], 0, 1) . substr($self['last_name'], 0, 1));
                     ?>
-                    <!-- Avatar strip with inline photo upload -->
+                    <form method="POST" enctype="multipart/form-data"
+                          action="<?= BASE_URL ?>/barangay_admin/settings.php?tab=profile<?= $isFrame ? '&amp;frame=1' : '' ?>"
+                          id="profileForm">
+                        <input type="hidden" name="action" value="save_profile">
+                        <input type="hidden" name="remove_profile_photo" id="removeProfilePhoto" value="0">
+                        <?= csrfField() ?>
+
                     <div class="d-flex align-items-center gap-4 mb-4 p-3 rounded-3" style="background:rgba(26,79,122,0.05);">
 
-                        <!-- Photo + edit overlay — wraps both the upload form AND the remove form -->
-                        <form method="POST" enctype="multipart/form-data" id="photoUploadForm">
-                            <input type="hidden" name="action" value="save_profile_photo">
-                            <?= csrfField() ?>
-                            <!-- Hidden file input — triggered by the pencil button -->
-                            <input type="file" name="profile_photo" id="profilePhotoInput"
-                                   accept="image/jpeg,.jfif,image/png,image/gif,image/webp"
-                                   style="display:none;"
-                                   onchange="autoSubmitPhoto(this)">
-
-                            <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
-                                <!-- Photo circle -->
-                                <div id="photoPreviewWrap" style="width:90px;height:90px;border-radius:12px;overflow:hidden;border:2px solid rgba(26,79,122,0.2);background:#e8f0f7;">
-                                    <?php if ($myPhotoUrl): ?>
-                                        <img id="photoPreview" src="<?= htmlspecialchars($myPhotoUrl) ?>"
-                                             alt="Profile Photo"
-                                             style="width:100%;height:100%;object-fit:cover;">
-                                    <?php else: ?>
-                                        <img id="photoPreview" src="" alt=""
-                                             style="width:100%;height:100%;object-fit:cover;display:none;">
-                                        <div id="photoInitials"
-                                             style="width:100%;height:100%;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.8rem;font-weight:700;">
-                                            <?= strtoupper(substr($self['first_name'],0,1).substr($self['last_name'],0,1)) ?>
-                                        </div>
-                                    <?php endif; ?>
+                        <input type="file" name="profile_photo" id="profilePhotoInput"
+                               accept="image/jpeg,.jfif,image/png,image/gif,image/webp"
+                               style="display:none;" onchange="previewProfilePhoto(this)">
+                        <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
+                            <div id="photoPreviewWrap" style="width:90px;height:90px;border-radius:12px;overflow:hidden;border:2px solid rgba(26,79,122,0.2);background:#e8f0f7;">
+                                <img id="photoPreview" src="<?= htmlspecialchars($myPhotoUrl, ENT_QUOTES, 'UTF-8') ?>"
+                                     data-saved-src="<?= htmlspecialchars($myPhotoUrl, ENT_QUOTES, 'UTF-8') ?>"
+                                     alt="Profile Photo"
+                                     onerror="this.style.display='none';document.getElementById('photoInitials').style.display='flex';"
+                                     style="width:100%;height:100%;object-fit:cover;<?= $myPhotoUrl ? '' : 'display:none;' ?>">
+                                <div id="photoInitials"
+                                     style="width:100%;height:100%;background:linear-gradient(135deg,#1a4f7a,#3a7fa8);display:<?= $myPhotoUrl ? 'none' : 'flex' ?>;align-items:center;justify-content:center;color:#fff;font-size:1.8rem;font-weight:700;">
+                                    <?= htmlspecialchars($profileInitials, ENT_QUOTES, 'UTF-8') ?>
                                 </div>
-                                <!-- Pencil edit button -->
-                                <button type="button"
-                                        onclick="document.getElementById('profilePhotoInput').click()"
-                                        title="Change photo"
-                                        style="position:absolute;bottom:-6px;right:-6px;width:28px;height:28px;border-radius:50%;background:#1a4f7a;border:2px solid #fff;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25);font-size:0.75rem;">
-                                    <i class="bi bi-pencil-fill"></i>
-                                </button>
                             </div>
-                            <div id="photoSizeErr" class="text-danger mt-1" style="display:none;font-size:0.72rem;"></div>
-                        </form>
+                            <button type="button"
+                                    onclick="document.getElementById('profilePhotoInput').click()"
+                                    title="Change photo"
+                                    style="position:absolute;bottom:-6px;right:-6px;width:28px;height:28px;border-radius:50%;background:#1a4f7a;border:2px solid #fff;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.25);font-size:0.75rem;">
+                                <i class="bi bi-pencil-fill"></i>
+                            </button>
+                        </div>
 
                         <div class="flex-grow-1">
                             <div class="fw-bold fs-6"><?= htmlspecialchars($self['first_name'].' '.$self['last_name']) ?></div>
@@ -798,29 +881,21 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
                             <span class="badge mt-1" style="background:rgba(26,79,122,0.1);color:#1a4f7a;font-size:0.7rem;">
                                 <i class="bi bi-shield-fill-check me-1"></i>Barangay Admin
                             </span>
-                            <?php if ($myPhoto): ?>
-                            <div class="mt-2">
-                                <form method="POST" class="d-inline"
-                                      onsubmit="return confirm('Remove your profile photo?');">
-                                    <input type="hidden" name="action" value="save_profile_photo">
-                                    <input type="hidden" name="remove_photo" value="1">
-                                    <?= csrfField() ?>
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            style="border-radius:6px;font-size:0.72rem;padding:2px 10px;">
-                                        <i class="bi bi-trash3 me-1"></i>Remove Photo
-                                    </button>
-                                </form>
+                            <div class="mt-2" id="removePhotoWrap" style="<?= $myPhoto ? '' : 'display:none;' ?>">
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        onclick="markPhotoForRemoval()"
+                                        style="border-radius:6px;font-size:0.72rem;padding:2px 10px;">
+                                    <i class="bi bi-trash3 me-1"></i>Remove Photo
+                                </button>
                             </div>
-                            <?php endif; ?>
                             <div class="mt-1" style="font-size:0.7rem;color:#94a3b8;">
-                                <i class="bi bi-pencil-fill me-1"></i>Click the pencil icon to change photo &nbsp;·&nbsp; JPG, PNG, WEBP, GIF &nbsp;·&nbsp; Max 2 MB
+                                <i class="bi bi-pencil-fill me-1"></i>Choose a photo, then click Save Profile to apply it &nbsp;·&nbsp; JPG, JFIF, PNG, WEBP, GIF &nbsp;·&nbsp; Max 2 MB
                             </div>
+                            <div id="photoSizeErr" class="text-danger mt-1" style="display:none;font-size:0.72rem;" aria-live="polite"></div>
+                            <div id="photoUploadStatus" class="mt-1" style="display:none;font-size:0.75rem;" aria-live="polite"></div>
                         </div>
                     </div>
 
-                    <form method="POST">
-                        <input type="hidden" name="action" value="save_profile">
-                        <?= csrfField() ?>
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label fw-semibold small">First Name <span class="text-danger">*</span></label>
@@ -915,137 +990,15 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
    TAB: SECURITY
 ══════════════════════════════════════════ */ ?>
 <?php if ($tab === 'security'): ?>
-
-            <form method="POST">
-                <input type="hidden" name="action" value="save_security">
-                <?= csrfField() ?>
-
-                <!-- Login Attempt Limits -->
-                <div class="settings-card">
-                    <div class="sc-header">
-                        <div class="sc-icon"><i class="bi bi-shield-exclamation"></i></div>
-                        <div>
-                            <h6>Login Attempt Limits</h6>
-                            <p>Lock accounts after too many failed login attempts</p>
-                        </div>
-                    </div>
-                    <div class="sc-body">
-                        <div class="row g-3">
-                            <div class="col-md-5">
-                                <label class="form-label fw-semibold small">Max Failed Attempts</label>
-                                <div class="input-group">
-                                    <input type="number" name="login_max_attempts" class="form-control"
-                                           value="<?= (int)baSetting($db,'login_max_attempts','5') ?>"
-                                           min="1" max="20"
-                                           oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                                    <span class="input-group-text">tries</span>
-                                </div>
-                                <div class="form-text">Account locks after this many failures (1–20)</div>
-                            </div>
-                            <div class="col-md-5">
-                                <label class="form-label fw-semibold small">Lockout Duration</label>
-                                <div class="input-group">
-                                    <input type="number" name="login_lockout_seconds" class="form-control"
-                                           value="<?= (int)baSetting($db,'login_lockout_seconds','300') ?>"
-                                           min="30" max="86400"
-                                           oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                                    <span class="input-group-text">sec</span>
-                                </div>
-                                <div class="form-text">How long the account stays locked (30–86400 sec)</div>
-                            </div>
-                        </div>
-                        <div class="alert d-flex align-items-start gap-2 mt-3 mb-0 py-2 px-3"
-                             style="background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);border-radius:10px;font-size:0.8rem;color:#991b1b;white-space:normal;word-break:break-word;">
-                            <i class="bi bi-lock-fill flex-shrink-0 mt-1"></i>
-                            <span>These limits apply to all users in this barangay. Once the limit is reached, the account is locked and <strong>cannot be automatically unlocked</strong> — the user must contact the LGU Admin to restore access.</span>
-                        </div>
+            <div class="settings-card">
+                <div class="sc-header">
+                    <div class="sc-icon"><i class="bi bi-shield-lock-fill"></i></div>
+                    <div>
+                        <h6>Global Security Settings</h6>
+                        <p>Login attempt limits and automatic logout are managed centrally by the Super Admin and cannot be changed from a Barangay Admin account.</p>
                     </div>
                 </div>
-
-                <!-- Idle Auto-Logout -->
-                <?php
-                $curIdleUnit = baSetting($db,'idle_timeout_unit','minutes');
-                $curIdleUnit = in_array($curIdleUnit,['seconds','minutes']) ? $curIdleUnit : 'minutes';
-                $curIdleVal  = (int)baSetting($db,'idle_timeout_minutes','5');
-                $idleEnabled = baSetting($db,'idle_timeout_enabled','1') === '1';
-                // Range hints per unit
-                $idleMin = $curIdleUnit === 'seconds' ? 10  : 1;
-                $idleMax = $curIdleUnit === 'seconds' ? 300 : 120;
-                ?>
-                <div class="settings-card">
-                    <div class="sc-header">
-                        <div class="sc-icon"><i class="bi bi-hourglass-split"></i></div>
-                        <div>
-                            <h6>Idle Auto-Logout</h6>
-                            <p>Automatically log out users after inactivity</p>
-                        </div>
-                    </div>
-                    <div class="sc-body">
-                        <div class="toggle-row">
-                            <div>
-                                <div class="tr-label">Enable Idle Timeout</div>
-                                <div class="tr-desc">When idle, users see a "Log In Now" prompt and are auto-logged out after the countdown</div>
-                            </div>
-                            <input type="checkbox" class="form-check-input" name="idle_timeout_enabled"
-                                   id="idleToggle"
-                                   <?= $idleEnabled ? 'checked' : '' ?>
-                                   style="width:42px;height:24px;cursor:pointer;"
-                                   onchange="document.getElementById('idleMinRow').style.display=this.checked?'flex':'none'">
-                        </div>
-                        <div class="row g-3 mt-2 align-items-end" id="idleMinRow"
-                             style="display:<?= $idleEnabled ? 'flex' : 'none' ?>">
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold small">Idle Timeout After</label>
-                                <input type="number" name="idle_timeout_minutes" id="idleValueInput"
-                                       class="form-control"
-                                       value="<?= $curIdleVal ?>"
-                                       min="<?= $idleMin ?>" max="<?= $idleMax ?>"
-                                       oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label fw-semibold small">Unit</label>
-                                <select name="idle_timeout_unit" id="idleUnitSelect" class="form-select"
-                                        onchange="idleUnitChanged(this.value)">
-                                    <option value="seconds" <?= $curIdleUnit==='seconds'?'selected':'' ?>>Seconds</option>
-                                    <option value="minutes" <?= $curIdleUnit==='minutes'?'selected':'' ?>>Minutes</option>
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <div class="form-text" id="idleRangeHint">
-                                    <?= $curIdleUnit==='seconds'
-                                        ? '10–300 seconds (e.g. 30 = 30 seconds)'
-                                        : '1–120 minutes (e.g. 5 = 5 minutes)' ?>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <script>
-                function idleUnitChanged(unit) {
-                    var input = document.getElementById('idleValueInput');
-                    var hint  = document.getElementById('idleRangeHint');
-                    if (unit === 'seconds') {
-                        input.min = 10; input.max = 300;
-                        if (parseInt(input.value) < 10)  input.value = 30;
-                        if (parseInt(input.value) > 300) input.value = 300;
-                        hint.textContent = '10–300 seconds (e.g. 30 = 30 seconds)';
-                    } else {
-                        input.min = 1; input.max = 120;
-                        if (parseInt(input.value) > 120) input.value = 5;
-                        if (parseInt(input.value) < 1)   input.value = 1;
-                        hint.textContent = '1–120 minutes (e.g. 5 = 5 minutes)';
-                    }
-                }
-                </script>
-
-                <!-- Session Timeout removed — replaced by Idle Auto-Logout -->
-
-                <div class="d-flex justify-content-end">
-                    <button type="submit" class="btn btn-primary px-4 fw-semibold" style="border-radius:8px;">
-                        <i class="bi bi-check-lg me-1"></i>Save Security Settings
-                    </button>
-                </div>
-            </form>
+            </div>
 
 <?php endif; /* end security tab */ ?>
 
@@ -1534,16 +1487,27 @@ function previewLogo(input) {
     reader.readAsDataURL(file);
 }
 
-// ── Profile photo live preview ────────────────────────────
-// ── Profile photo: preview then auto-submit ───────────────
-function autoSubmitPhoto(input) {
+// ── Profile photo preview ─────────────────────────────────
+function previewProfilePhoto(input) {
     const preview  = document.getElementById('photoPreview');
     const initials = document.getElementById('photoInitials');
     const errEl    = document.getElementById('photoSizeErr');
-    errEl.style.display = 'none';
+    const statusEl = document.getElementById('photoUploadStatus');
+    const removeField = document.getElementById('removeProfilePhoto');
+    const removeWrap = document.getElementById('removePhotoWrap');
+    const file = input.files?.[0];
 
-    if (!input.files || !input.files[0]) return;
-    const file = input.files[0];
+    errEl.style.display = 'none';
+    statusEl.style.display = 'none';
+    if (!file) return;
+
+    const extension = file.name.split('.').pop().toLowerCase();
+    if (!['jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp'].includes(extension)) {
+        errEl.textContent = 'Choose a JPG, JFIF, PNG, GIF, or WEBP image.';
+        errEl.style.display = 'block';
+        input.value = '';
+        return;
+    }
 
     if (file.size > 2 * 1024 * 1024) {
         errEl.textContent   = 'File exceeds 2 MB limit. Please choose a smaller image.';
@@ -1552,15 +1516,56 @@ function autoSubmitPhoto(input) {
         return;
     }
 
+    removeField.value = '0';
+    const removeButton = removeWrap?.querySelector('button');
+    if (removeButton) removeButton.innerHTML = '<i class="bi bi-trash3 me-1"></i>Remove Photo';
+
     const reader = new FileReader();
     reader.onload = function(e) {
         preview.src           = e.target.result;
         preview.style.display = 'block';
         if (initials) initials.style.display = 'none';
-        // Auto-submit the form after preview renders
-        document.getElementById('photoUploadForm').submit();
+        statusEl.textContent = 'Preview only — click Save Profile to apply this photo.';
+        statusEl.style.color = '#3a7fa8';
+        statusEl.style.display = 'block';
+        if (removeWrap) removeWrap.style.display = 'block';
+    };
+    reader.onerror = function() {
+        statusEl.textContent = 'Could not read the selected image. Please try another file.';
+        statusEl.style.color = '#dc2626';
+        statusEl.style.display = 'block';
+        input.value = '';
     };
     reader.readAsDataURL(file);
+}
+
+function markPhotoForRemoval() {
+    const removeField = document.getElementById('removeProfilePhoto');
+    const input = document.getElementById('profilePhotoInput');
+    const preview = document.getElementById('photoPreview');
+    const initials = document.getElementById('photoInitials');
+    const removeButton = document.querySelector('#removePhotoWrap button');
+    const statusEl = document.getElementById('photoUploadStatus');
+    const savedSrc = preview.dataset.savedSrc || '';
+
+    if (removeField.value !== '1') {
+        input.value = '';
+        removeField.value = '1';
+        preview.removeAttribute('src');
+        preview.style.display = 'none';
+        if (initials) initials.style.display = 'flex';
+        if (removeButton) removeButton.innerHTML = '<i class="bi bi-arrow-counterclockwise me-1"></i>Undo Remove';
+        statusEl.textContent = 'Photo removal is pending — click Save Profile to apply it.';
+    } else {
+        removeField.value = '0';
+        preview.src = savedSrc;
+        preview.style.display = savedSrc ? 'block' : 'none';
+        if (initials) initials.style.display = savedSrc ? 'none' : 'flex';
+        if (removeButton) removeButton.innerHTML = '<i class="bi bi-trash3 me-1"></i>Remove Photo';
+        statusEl.textContent = 'Photo removal cancelled.';
+    }
+    statusEl.style.color = '#3a7fa8';
+    statusEl.style.display = 'block';
 }
 
 // ── Contact validation ────────────────────────────────────
@@ -1683,6 +1688,23 @@ function doChangePassword() {
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Yes, Change It';
     });
 }
+<?php if ($isFrame && ($_GET['profile_saved'] ?? '') === '1'): ?>
+<?php
+$savedPhoto = $self['profile_photo'] ?? '';
+$savedPhotoPath = $savedPhoto ? UPLOAD_PATH . 'profile_photos/' . basename($savedPhoto) : '';
+$savedPhotoVersion = $savedPhotoPath && is_file($savedPhotoPath) ? filemtime($savedPhotoPath) : '';
+$savedPhotoUrl = $savedPhoto && $savedPhotoVersion
+    ? UPLOAD_URL . 'profile_photos/' . rawurlencode(basename($savedPhoto)) . '?v=' . $savedPhotoVersion
+    : '';
+$savedProfile = [
+    'type' => 'barangay-profile-saved',
+    'photoUrl' => $savedPhotoUrl,
+    'name' => trim(($self['first_name'] ?? '') . ' ' . ($self['last_name'] ?? '')),
+    'initials' => strtoupper(substr($self['first_name'] ?? '', 0, 1) . substr($self['last_name'] ?? '', 0, 1)),
+];
+?>
+window.parent.postMessage(<?= json_encode($savedProfile, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>, window.location.origin);
+<?php endif; ?>
 </script>
 </body>
 </html>

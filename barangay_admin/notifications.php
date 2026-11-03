@@ -65,9 +65,7 @@ if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmt->execute($w['params']);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $userEmail = $u['email'] ?? '';
-
-    $items = array_map(function($n) use ($userEmail) {
+    $items = array_map(function($n) {
         $cat  = $n['category'] ?? 'system';
         $type = $n['type']     ?? 'info';
         $iconMap = [
@@ -84,7 +82,9 @@ if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
         return [
             'icon'   => $iconMap[$cat] ?? ($typeMap[$type] ?? 'bi-bell-fill text-secondary'),
             'msg'    => strip_tags($n['message'], '<strong><b><em><i><br>'),
-            'email'  => htmlspecialchars($userEmail),
+            'sender' => (string)($n['actor_name'] ?? ''),
+            'barangay' => (string)($n['actor_barangay'] ?? ''),
+            'email'  => (string)($n['actor_email'] ?? ''),
             'time'   => date('M d, Y h:i A', strtotime($n['created_at'])),
             'unread' => !(bool)$n['is_read'],
         ];
@@ -121,21 +121,22 @@ $pageSubtitle = '';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .notif-row {
-            display: flex; align-items: flex-start; gap: 10px;
-            padding: 10px 14px; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: flex-start; gap: 14px;
+            padding: 16px 20px; border-bottom: 1px solid #f0f0f0;
             background: #fff; transition: background 0.15s;
         }
         .notif-row:last-child { border-bottom: none; }
         .notif-row:hover      { background: #fafbff; }
         .notif-row.unread     { border-left: 3px solid #3b82f6; background: #f8faff; }
         .notif-row.unread:hover { background: #f0f5ff; }
-        .notif-icon { font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
-        .notif-msg  { font-size: 0.8rem; line-height: 1.45; color: #1e293b; margin-bottom: 2px; }
-        .notif-meta { font-size: 0.68rem; color: #94a3b8; }
-        .notif-meta .sep { margin: 0 4px; }
+        .notif-icon { font-size: 1rem; margin-top: 3px; flex-shrink: 0; }
+        .notif-content { min-width: 0; flex: 1; }
+        .notif-sender { font-size: 0.76rem; font-weight: 600; color: #475569; margin-bottom: 4px; overflow-wrap: anywhere; }
+        .notif-msg  { font-size: 0.85rem; line-height: 1.5; color: #1e293b; margin-bottom: 8px; overflow-wrap: anywhere; }
+        .notif-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 0.72rem; color: #64748b; overflow-wrap: anywhere; }
 
         #notif-list-wrap { margin-top: 14px; transition: opacity 0.18s ease; }
         #notif-list-wrap.loading { opacity: 0.35; pointer-events: none; }
@@ -280,11 +281,14 @@ $pageSubtitle = '';
             return;
         }
         wrap.innerHTML = d.items.map(function(n){
+            var sender = n.sender || 'Sender unavailable';
+            var senderBarangay = n.barangay ? ' (Brgy. ' + esc(n.barangay) + ')' : '';
+            var email = n.email ? '<span><i class="bi bi-envelope me-1"></i>' + esc(n.email) + '</span>' : '';
             return '<div class="notif-row' + (n.unread ? ' unread' : '') + '">'
                 + '<i class="bi ' + esc(n.icon) + ' notif-icon"></i>'
-                + '<div><div class="notif-msg">' + n.msg + '</div>'
-                + '<div class="notif-meta"><i class="bi bi-envelope me-1"></i>' + n.email
-                + '<span class="sep">·</span><i class="bi bi-clock me-1"></i>' + esc(n.time) + '</div>'
+                + '<div class="notif-content"><div class="notif-sender">From: ' + esc(sender) + senderBarangay + '</div>'
+                + '<div class="notif-msg">' + n.msg + '</div>'
+                + '<div class="notif-meta"><span><i class="bi bi-clock me-1"></i>' + esc(n.time) + '</span>' + email + '</div>'
                 + '</div></div>';
         }).join('');
     }

@@ -6,14 +6,85 @@ $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 
 // ── Date range filter ──────────────────────────────────────
-$from = sanitize($_GET['from'] ?? date('Y-01-01'));
-$to   = sanitize($_GET['to']   ?? date('Y-m-d'));
-$bid  = (int)($_GET['barangay_id'] ?? 0);
+$today = new DateTimeImmutable('today');
+$todayString = $today->format('Y-m-d');
+$periodLabels = [
+    'current_month' => 'Current Month',
+    'last_3_months' => 'Last 3 Months',
+    'last_6_months' => 'Last 6 Months',
+    'last_12_months' => 'Last 12 Months',
+    'custom' => 'Custom Range',
+];
+$requestedPeriod = $_GET['period'] ?? '';
+$filterError = '';
+$hasCustomDates = isset($_GET['from']) || isset($_GET['to']);
+if (!is_string($requestedPeriod)) {
+    $requestedPeriod = '';
+    $filterError = 'Hindi valid ang napiling date range.';
+} elseif ($requestedPeriod !== '' && !isset($periodLabels[$requestedPeriod])) {
+    if ($hasCustomDates) {
+        $requestedPeriod = 'custom';
+    } else {
+        $filterError = 'Hindi kilala ang napiling date range. Ipinapakita ang kasalukuyang buwan.';
+        $requestedPeriod = '';
+    }
+}
 
-$andBrgy       = $bid ? " AND barangay_id=$bid" : '';
-$andBrgyW      = $bid ? " WHERE barangay_id=$bid" : '';
-$whereDate     = "DATE(created_at) BETWEEN '$from' AND '$to'";
-$whereDateCert = "date_issued BETWEEN '$from' AND '$to'";
+if (isset($periodLabels[$requestedPeriod]) && $requestedPeriod !== 'custom') {
+    $period = $requestedPeriod;
+    $monthsBack = [
+        'current_month' => 0,
+        'last_3_months' => 2,
+        'last_6_months' => 5,
+        'last_12_months' => 11,
+    ][$period];
+    $from = $today->modify('first day of this month')->modify("-$monthsBack months")->format('Y-m-d');
+    $to = $todayString;
+} elseif ($requestedPeriod === 'custom' || $hasCustomDates) {
+    $period = 'custom';
+    $parseDate = static function ($value): ?DateTimeImmutable {
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return null;
+        }
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date && $date->format('Y-m-d') === $value ? $date : null;
+    };
+    $customFrom = $parseDate($_GET['from'] ?? null);
+    $customTo = $parseDate($_GET['to'] ?? null);
+    if (!$customFrom || !$customTo || $customFrom > $customTo || $customTo > $today) {
+        $filterError = 'Pumili ng valid na custom date range na hindi lalampas sa kasalukuyang petsa.';
+        $period = 'current_month';
+        $from = $today->modify('first day of this month')->format('Y-m-d');
+        $to = $todayString;
+    } else {
+        $from = $customFrom->format('Y-m-d');
+        $to = $customTo->format('Y-m-d');
+    }
+} else {
+    $period = 'current_month';
+    $from = $today->modify('first day of this month')->format('Y-m-d');
+    $to = $todayString;
+}
+
+$bid = max(0, (int)($_GET['barangay_id'] ?? 0));
+$andBrgy = $bid ? " AND barangay_id=$bid" : '';
+$residentTransferOutExclusion = " AND resident_status <> 'Transferred'";
+$periodCount = static function (string $table, string $dateColumn, string $extraWhere = '', array $extraParams = []) use ($db, $from, $to, $andBrgy, $residentTransferOutExclusion): int {
+    $residentFilter = $table === 'residents'
+        ? $residentTransferOutExclusion
+        : '';
+    $stmt = $db->prepare("SELECT COUNT(*) FROM $table WHERE DATE($dateColumn) BETWEEN ? AND ?$extraWhere$residentFilter$andBrgy");
+    $stmt->execute(array_merge([$from, $to], $extraParams));
+    return (int)$stmt->fetchColumn();
+};
+$periodRows = static function (string $sql) use ($db, $from, $to): array {
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$from, $to]);
+    return $stmt->fetchAll();
+};
+$selectedPeriodLabel = date('F j', strtotime($from)) . (date('Y-m', strtotime($from)) === date('Y-m', strtotime($to))
+    ? '–' . date('j, Y', strtotime($to))
+    : ', ' . date('Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
 
 // ── All barangays for filter ───────────────────────────────
 $barangays = $db->query("SELECT id, barangay_name FROM barangays WHERE status='active' ORDER BY barangay_name")->fetchAll();
@@ -21,37 +92,46 @@ $barangays = $db->query("SELECT id, barangay_name FROM barangays WHERE status='a
 // ── KPI Cards ─────────────────────────────────────────────
 $kpi = [];
 $kpi['total_residents']  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE resident_status='Active'$andBrgy")->fetchColumn();
-$kpi['new_residents']    = (int)$db->query("SELECT COUNT(*) FROM residents WHERE $whereDate$andBrgy")->fetchColumn();
+$kpi['new_residents']    = $periodCount('residents', 'created_at');
 $kpi['total_households'] = (int)$db->query("SELECT COUNT(*) FROM households WHERE status='Active'$andBrgy")->fetchColumn();
-$kpi['certs_issued']     = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE $whereDateCert$andBrgy")->fetchColumn();
-$kpi['blotter_cases']    = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE $whereDate$andBrgy")->fetchColumn();
-$kpi['active_barangays'] = (int)$db->query("SELECT COUNT(*) FROM barangays WHERE status='active'")->fetchColumn();
+$kpi['certs_issued']     = $periodCount('certificates', 'date_issued');
+$kpi['blotter_cases']    = $periodCount('blotter_cases', 'created_at');
+$kpi['active_barangays'] = $bid
+    ? (int)$db->query("SELECT COUNT(*) FROM barangays WHERE status='active' AND id=$bid")->fetchColumn()
+    : (int)$db->query("SELECT COUNT(*) FROM barangays WHERE status='active'")->fetchColumn();
 
-// ── Monthly trends (12 months, anchored to latest record) ──
-$_latestRes  = $db->query("SELECT MAX(created_at) FROM residents"  .($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
-$_latestCert = $db->query("SELECT MAX(date_issued) FROM certificates".($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
-$_latestBlot = $db->query("SELECT MAX(created_at) FROM blotter_cases".($bid?" WHERE barangay_id=$bid":''))->fetchColumn();
-$_latestDates = array_filter([$_latestRes, $_latestCert, $_latestBlot]);
-$anchorTs     = $_latestDates ? strtotime(max($_latestDates)) : time();
-
+// ── Monthly trends within the selected period ──────────────
+$trendResidents = $periodRows("SELECT DATE_FORMAT(created_at,'%Y-%m') AS period, COUNT(*) AS total
+    FROM residents WHERE DATE(created_at) BETWEEN ? AND ?$residentTransferOutExclusion$andBrgy GROUP BY period");
+$trendCertificates = $periodRows("SELECT DATE_FORMAT(date_issued,'%Y-%m') AS period, COUNT(*) AS total
+    FROM certificates WHERE DATE(date_issued) BETWEEN ? AND ?$andBrgy GROUP BY period");
+$trendBlotter = $periodRows("SELECT DATE_FORMAT(created_at,'%Y-%m') AS period, COUNT(*) AS total
+    FROM blotter_cases WHERE DATE(created_at) BETWEEN ? AND ?$andBrgy GROUP BY period");
+$toMonth = new DateTimeImmutable(date('Y-m-01', strtotime($to)));
+$monthCursor = new DateTimeImmutable(date('Y-m-01', strtotime($from)));
+$trendMaps = ['residents' => [], 'certificates' => [], 'blotter' => []];
+foreach ($trendResidents as $row) $trendMaps['residents'][$row['period']] = (int)$row['total'];
+foreach ($trendCertificates as $row) $trendMaps['certificates'][$row['period']] = (int)$row['total'];
+foreach ($trendBlotter as $row) $trendMaps['blotter'][$row['period']] = (int)$row['total'];
 $monthLabels = []; $monthNewRes = []; $monthCerts = []; $monthBlotter = [];
-for ($i = 11; $i >= 0; $i--) {
-    $m = date('Y-m', strtotime("-$i months", $anchorTs));
-    $monthLabels[]  = date('M Y', strtotime("-$i months", $anchorTs));
-    $monthNewRes[]  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE DATE_FORMAT(created_at,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
-    $monthCerts[]   = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE DATE_FORMAT(date_issued,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
-    $monthBlotter[] = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE DATE_FORMAT(created_at,'%Y-%m')='$m'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
+while ($monthCursor <= $toMonth) {
+    $monthKey = $monthCursor->format('Y-m');
+    $monthLabels[] = $monthCursor->format('M Y');
+    $monthNewRes[] = $trendMaps['residents'][$monthKey] ?? 0;
+    $monthCerts[] = $trendMaps['certificates'][$monthKey] ?? 0;
+    $monthBlotter[] = $trendMaps['blotter'][$monthKey] ?? 0;
+    $monthCursor = $monthCursor->modify('+1 month');
 }
 
 // ── Gender ─────────────────────────────────────────────────
 $genderData = ['Male' => 0, 'Female' => 0];
-foreach ($db->query("SELECT gender, COUNT(*) c FROM residents WHERE resident_status='Active'".($bid?" AND barangay_id=$bid":'')." GROUP BY gender")->fetchAll() as $r)
+foreach ($periodRows("SELECT gender, COUNT(*) c FROM residents WHERE DATE(created_at) BETWEEN ? AND ?$residentTransferOutExclusion$andBrgy GROUP BY gender") as $r)
     $genderData[$r['gender']] = (int)$r['c'];
 
 // ── Age groups ─────────────────────────────────────────────
 $ageGroups = ['0-12' => 0, '13-17' => 0, '18-35' => 0, '36-59' => 0, '60+' => 0];
-foreach ($db->query("SELECT birthdate FROM residents WHERE resident_status='Active' AND birthdate IS NOT NULL".($bid?" AND barangay_id=$bid":''))->fetchAll() as $r) {
-    $age = (int)date_diff(date_create($r['birthdate']), date_create())->y;
+foreach ($periodRows("SELECT birthdate FROM residents WHERE DATE(created_at) BETWEEN ? AND ?$residentTransferOutExclusion AND resident_status='Active' AND birthdate IS NOT NULL$andBrgy") as $r) {
+    $age = (int)date_diff(date_create($r['birthdate']), date_create($todayString))->y;
     if      ($age <= 12) $ageGroups['0-12']++;
     elseif  ($age <= 17) $ageGroups['13-17']++;
     elseif  ($age <= 35) $ageGroups['18-35']++;
@@ -61,64 +141,70 @@ foreach ($db->query("SELECT birthdate FROM residents WHERE resident_status='Acti
 
 // ── Resident status ────────────────────────────────────────
 $resStatus = [];
-foreach ($db->query("SELECT resident_status, COUNT(*) c FROM residents".($bid?" WHERE barangay_id=$bid":'')." GROUP BY resident_status")->fetchAll() as $r)
+foreach ($periodRows("SELECT resident_status, COUNT(*) c FROM residents WHERE DATE(created_at) BETWEEN ? AND ?$residentTransferOutExclusion$andBrgy GROUP BY resident_status") as $r)
     $resStatus[$r['resident_status']] = (int)$r['c'];
 
 // ── Voter status ───────────────────────────────────────────
 $voterData = ['Registered' => 0, 'Not Registered' => 0];
-foreach ($db->query("SELECT voter_status, COUNT(*) c FROM residents WHERE resident_status='Active'".($bid?" AND barangay_id=$bid":'')." GROUP BY voter_status")->fetchAll() as $r)
+foreach ($periodRows("SELECT voter_status, COUNT(*) c FROM residents WHERE DATE(created_at) BETWEEN ? AND ?$residentTransferOutExclusion AND resident_status='Active'$andBrgy GROUP BY voter_status") as $r)
     $voterData[$r['voter_status']] = (int)$r['c'];
 
 // ── Employment ─────────────────────────────────────────────
 $empStatuses = ['Employed', 'Unemployed', 'Self-Employed', 'Student', 'Retired'];
 $empValues   = [];
 foreach ($empStatuses as $es)
-    $empValues[] = (int)$db->query("SELECT COUNT(*) FROM residents WHERE occupation_status='$es' AND resident_status='Active'".($bid?" AND barangay_id=$bid":''))->fetchColumn();
+    $empValues[] = $periodCount('residents', 'created_at', " AND occupation_status=? AND resident_status='Active'", [$es]);
 
 // ── Sectors ────────────────────────────────────────────────
 $sectors = [
-    'PWD'         => (int)$db->query("SELECT COUNT(*) FROM residents WHERE is_pwd=1 AND resident_status='Active'".($bid?" AND barangay_id=$bid":''))->fetchColumn(),
-    'Senior'      => (int)$db->query("SELECT COUNT(*) FROM residents WHERE is_senior=1 AND resident_status='Active'".($bid?" AND barangay_id=$bid":''))->fetchColumn(),
-    'Solo Parent' => (int)$db->query("SELECT COUNT(*) FROM residents WHERE is_solo_parent=1 AND resident_status='Active'".($bid?" AND barangay_id=$bid":''))->fetchColumn(),
-    '4Ps'         => (int)$db->query("SELECT COUNT(*) FROM residents WHERE is_4ps=1 AND resident_status='Active'".($bid?" AND barangay_id=$bid":''))->fetchColumn(),
+    'PWD'         => $periodCount('residents', 'created_at', " AND is_pwd=1 AND resident_status='Active'"),
+    'Senior'      => $periodCount('residents', 'created_at', " AND is_senior=1 AND resident_status='Active'"),
+    'Solo Parent' => $periodCount('residents', 'created_at', " AND is_solo_parent=1 AND resident_status='Active'"),
+    '4Ps'         => $periodCount('residents', 'created_at', " AND is_4ps=1 AND resident_status='Active'"),
 ];
 
 // ── Certificate types ──────────────────────────────────────
 $certTypes = []; $certCounts = [];
-foreach ($db->query("SELECT certificate_type, COUNT(*) c FROM certificates".($bid?" WHERE barangay_id=$bid":'')." GROUP BY certificate_type ORDER BY c DESC LIMIT 6")->fetchAll() as $r) {
+foreach ($periodRows("SELECT certificate_type, COUNT(*) c FROM certificates WHERE DATE(date_issued) BETWEEN ? AND ?$andBrgy GROUP BY certificate_type ORDER BY c DESC LIMIT 6") as $r) {
     $certTypes[]  = $r['certificate_type'];
     $certCounts[] = (int)$r['c'];
 }
 
 // ── Blotter by status ──────────────────────────────────────
 $blotterStatus = [];
-foreach ($db->query("SELECT status, COUNT(*) c FROM blotter_cases".($bid?" WHERE barangay_id=$bid":'')." GROUP BY status")->fetchAll() as $r)
+foreach ($periodRows("SELECT status, COUNT(*) c FROM blotter_cases WHERE DATE(created_at) BETWEEN ? AND ?$andBrgy GROUP BY status") as $r)
     $blotterStatus[$r['status']] = (int)$r['c'];
 
 // ── Household income distribution ─────────────────────────
 $incomeRanges = ['Below ₱10,000', '₱10,000 - ₱20,000', '₱20,001 - ₱40,000', '₱40,001 - ₱60,000', 'Above ₱60,000'];
 $incomeCounts = [];
-foreach ($incomeRanges as $ir) {
-    $s = $db->prepare("SELECT COUNT(*) FROM households WHERE income_range=? AND status='Active'".($bid?" AND barangay_id=$bid":''));
-    $s->execute([$ir]);
-    $incomeCounts[] = (int)$s->fetchColumn();
-}
+foreach ($incomeRanges as $ir)
+    $incomeCounts[] = $periodCount('households', 'created_at', " AND income_range=? AND status='Active'", [$ir]);
 
-// ── Top 5 barangays by population ─────────────────────────
-$topBrgy = $db->query("SELECT b.barangay_name, COUNT(r.id) as residents
+// ── Top barangays by residents registered in the period ────
+$topBrgy = $periodRows("SELECT b.barangay_name, COUNT(r.id) AS residents
     FROM barangays b
     LEFT JOIN residents r ON r.barangay_id=b.id AND r.resident_status='Active'
-    WHERE b.status='active'
-    GROUP BY b.id ORDER BY residents DESC LIMIT 5")->fetchAll();
+        AND DATE(r.created_at) BETWEEN ? AND ?
+    WHERE b.status='active'" . ($bid ? " AND b.id=$bid" : '') . "
+    GROUP BY b.id ORDER BY residents DESC LIMIT 5");
 
-// ── Login activity (last 30 days) ─────────────────────────
-$loginLabels = []; $loginValues = [];
-for ($i = 29; $i >= 0; $i--) {
-    $day = date('Y-m-d', strtotime("-$i days"));
-    $loginLabels[] = date('M d', strtotime("-$i days"));
-    try {
-        $loginValues[] = (int)$db->query("SELECT COUNT(*) FROM login_logs WHERE DATE(created_at)='$day'")->fetchColumn();
-    } catch (\Throwable $e) { $loginValues[] = 0; }
+// ── Login activity within the selected period ──────────────
+$loginQuery = "SELECT DATE_FORMAT(l.login_time,'%Y-%m') AS period, COUNT(*) AS total FROM login_logs l";
+if ($bid) $loginQuery .= " INNER JOIN users u ON u.id=l.user_id";
+$loginQuery .= " WHERE DATE(l.login_time) BETWEEN ? AND ?" . ($bid ? " AND u.barangay_id=?" : '') . " GROUP BY period";
+$loginStmt = $db->prepare($loginQuery);
+$loginParams = [$from, $to];
+if ($bid) $loginParams[] = $bid;
+$loginStmt->execute($loginParams);
+$loginByMonth = [];
+foreach ($loginStmt->fetchAll() as $row) $loginByMonth[$row['period']] = (int)$row['total'];
+$loginLabels = $monthLabels;
+$loginValues = [];
+$monthCursor = new DateTimeImmutable(date('Y-m-01', strtotime($from)));
+while ($monthCursor <= $toMonth) {
+    $loginValues[] = $loginByMonth[$monthCursor->format('Y-m')] ?? 0;
+    $monthCursor = $monthCursor->modify('+1 month');
 }
 
 $pageIcon     = 'bi-bar-chart-line-fill';
@@ -133,7 +219,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .topbar { height:80px !important; }
         .main-content { margin-top:80px !important; padding:12px 20px 20px 22px; }
@@ -186,6 +272,9 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
         .brgy-bar-row .brgy-bar-wrap { flex:1; background:#e8eef4; border-radius:6px; height:8px; }
         .brgy-bar-row .brgy-bar-fill { height:8px; border-radius:6px; background:#2563eb; }
         .brgy-bar-row .brgy-count { font-size:0.72rem; font-weight:700; color:#2563eb; width:50px; text-align:right; flex-shrink:0; }
+        .analytics-period-note { color:#334155; font-size:.8rem; }
+        .analytics-period-note .btn { padding:0; vertical-align:baseline; }
+        .analytics-period-note .popover { max-width:min(360px, calc(100vw - 24px)); }
 
         /* Section titles */
         .sec-title {
@@ -214,11 +303,18 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
     <!-- ── Filter ── -->
     <div class="card mb-4" style="border-radius:12px;border:1.5px solid #d0e8f4;">
         <div class="card-body py-2">
-            <form method="GET" class="d-flex flex-wrap align-items-center gap-2">
-                <label class="small fw-semibold text-muted mb-0">Date Range (default: year-to-date):</label>
-                <input type="date" name="from" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($from) ?>">
-                <span class="small text-muted">to</span>
-                <input type="date" name="to"   class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($to) ?>">
+            <form method="GET" id="analyticsDateFilter" class="d-flex flex-wrap align-items-center gap-2">
+                <label for="analyticsPeriod" class="small fw-semibold text-muted mb-0">Date Range:</label>
+                <select name="period" id="analyticsPeriod" class="form-select form-select-sm" style="width:180px;">
+                    <?php foreach ($periodLabels as $key => $label): ?>
+                    <option value="<?= htmlspecialchars($key) ?>" <?= $period === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div id="customDateFields" class="d-<?= $period === 'custom' ? 'flex' : 'none' ?> align-items-center gap-2">
+                    <input type="date" name="from" aria-label="Start date" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($from) ?>" max="<?= htmlspecialchars($todayString) ?>">
+                    <span class="small text-muted">to</span>
+                    <input type="date" name="to" aria-label="End date" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($to) ?>" max="<?= htmlspecialchars($todayString) ?>">
+                </div>
                 <select name="barangay_id" class="form-select form-select-sm" style="width:200px;">
                     <option value="">All Barangays</option>
                     <?php foreach ($barangays as $b): ?>
@@ -226,27 +322,39 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
                     <?php endforeach; ?>
                 </select>
                 <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel-fill me-1"></i>Apply</button>
-                <a href="?" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                <a href="?period=current_month<?= $bid ? '&barangay_id=' . $bid : '' ?>" class="btn btn-sm btn-outline-secondary" aria-label="Reset date filter"><i class="bi bi-arrow-counterclockwise"></i></a>
                 <?php if ($bid): ?>
-                <span class="ms-auto badge" style="background:#dbeafe;color:#1a4f7a;font-size:.75rem;padding:6px 12px;border-radius:20px;">
+                <span class="badge" style="background:#dbeafe;color:#1a4f7a;font-size:.75rem;padding:6px 12px;border-radius:20px;">
                     <i class="bi bi-geo-alt-fill me-1"></i><?= htmlspecialchars($barangays[array_search($bid, array_column($barangays,'id'))]['barangay_name'] ?? '') ?>
                 </span>
                 <?php endif; ?>
+                <div class="w-100 d-flex flex-wrap align-items-center gap-1 mt-1 analytics-period-note">
+                    <span><strong>Selected period:</strong> <?= htmlspecialchars($selectedPeriodLabel) ?>.</span>
+                    <button type="button" class="btn btn-link btn-sm" aria-label="Explain date ranges"
+                            data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
+                            data-bs-content="<?= htmlspecialchars('<strong>How date ranges work</strong><br>Current Month: first day of this month through today.<br>Last 3, 6, or 12 Months: starts on the first day of the earliest included month and ends today.<br>Custom Range: includes both selected dates.<br><br>The selected period filters registration, certificate, blotter, household, login, and related chart data. Transferred-out origin records are excluded. A resident is counted in the destination barangay only after an active destination record is created; pending or rejected transfer requests are not counted there. Total residents, active households, and active barangays are current snapshots.', ENT_QUOTES, 'UTF-8') ?>">
+                        <i class="bi bi-exclamation-circle-fill text-warning"></i>
+                        Paano gumagana ang date range?
+                    </button>
+                </div>
             </form>
         </div>
     </div>
+    <?php if ($filterError): ?>
+    <div class="alert alert-warning py-2 small" role="alert"><i class="bi bi-exclamation-triangle-fill me-1"></i><?= htmlspecialchars($filterError) ?></div>
+    <?php endif; ?>
 
     <!-- ── KPI Cards ── -->
     <div class="sec-title"><i class="bi bi-grid-1x2-fill text-primary"></i>Key Metrics</div>
     <div class="row g-3 mb-4" style="align-items:stretch;">
         <?php
         $kpis = [
-            ['label'=>'Total Residents',   'val'=>$kpi['total_residents'],  'icon'=>'bi-people-fill',             'ic'=>'#1a4f7a','bg'=>'#dbeafe','ibg'=>'#93c5fd'],
+            ['label'=>'Total Residents (Current)', 'val'=>$kpi['total_residents'],  'icon'=>'bi-people-fill',             'ic'=>'#1a4f7a','bg'=>'#dbeafe','ibg'=>'#93c5fd'],
             ['label'=>'New Residents',     'val'=>$kpi['new_residents'],    'icon'=>'bi-person-plus-fill',        'ic'=>'#065f46','bg'=>'#d1fae5','ibg'=>'#6ee7b7'],
-            ['label'=>'Active Households', 'val'=>$kpi['total_households'], 'icon'=>'bi-house-fill',              'ic'=>'#1a4f7a','bg'=>'#e0f2fe','ibg'=>'#7dd3fc'],
+            ['label'=>'Active Households (Current)', 'val'=>$kpi['total_households'], 'icon'=>'bi-house-fill',              'ic'=>'#1a4f7a','bg'=>'#e0f2fe','ibg'=>'#7dd3fc'],
             ['label'=>'Certs Issued',      'val'=>$kpi['certs_issued'],     'icon'=>'bi-file-earmark-check-fill', 'ic'=>'#6d28d9','bg'=>'#ede9fe','ibg'=>'#c4b5fd'],
             ['label'=>'Blotter Cases',     'val'=>$kpi['blotter_cases'],    'icon'=>'bi-shield-exclamation',      'ic'=>'#991b1b','bg'=>'#fee2e2','ibg'=>'#fca5a5'],
-            ['label'=>'Active Barangays',  'val'=>$kpi['active_barangays'], 'icon'=>'bi-geo-alt-fill',            'ic'=>'#059669','bg'=>'#d1fae5','ibg'=>'#6ee7b7'],
+            ['label'=>'Active Barangays (Current)', 'val'=>$kpi['active_barangays'], 'icon'=>'bi-geo-alt-fill',            'ic'=>'#059669','bg'=>'#d1fae5','ibg'=>'#6ee7b7'],
         ];
         foreach ($kpis as $k): ?>
         <div class="col-6 col-md-4 col-lg-2 d-flex">
@@ -262,7 +370,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
     </div>
 
     <!-- ── Trend Chart ── -->
-    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (Last 12 Months ending <?= date('M Y', $anchorTs) ?>)</div>
+    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (<?= htmlspecialchars($selectedPeriodLabel) ?>)</div>
     <div class="row g-3 mb-4">
         <div class="col-12">
             <div class="chart-card">
@@ -273,7 +381,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
     </div>
 
     <!-- ── Demographics ── -->
-    <div class="sec-title"><i class="bi bi-people-fill text-info"></i>Demographics</div>
+    <div class="sec-title"><i class="bi bi-people-fill text-info"></i>Demographics (Residents Registered During Selected Period)</div>
     <div class="row g-3 mb-4">
         <div class="col-md-3">
             <div class="chart-card h-100">
@@ -335,7 +443,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
         </div>
         <div class="col-md-3">
             <div class="chart-card h-100">
-                <div class="ch"><i class="bi bi-currency-exchange text-warning"></i>Household Income</div>
+                <div class="ch"><i class="bi bi-currency-exchange text-warning"></i>Income of Households Added in Period</div>
                 <div class="cb"><canvas id="incomeChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
@@ -346,7 +454,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
     <div class="row g-3 mb-4">
         <div class="col-md-5">
             <div class="chart-card h-100">
-                <div class="ch"><i class="bi bi-trophy-fill text-warning"></i>Top Barangays by Population</div>
+                <div class="ch"><i class="bi bi-trophy-fill text-warning"></i>Top Barangays by Residents Registered</div>
                 <div class="cb">
                     <?php
                     $maxPop = $topBrgy ? max(array_column($topBrgy, 'residents')) : 1;
@@ -367,7 +475,7 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
         </div>
         <div class="col-md-7">
             <div class="chart-card h-100">
-                <div class="ch"><i class="bi bi-person-check text-success"></i>Login Activity (Last 30 Days)</div>
+                <div class="ch"><i class="bi bi-person-check text-success"></i>Login Activity (Selected Period)</div>
                 <div class="cb"><canvas id="loginChart" style="max-height:200px;display:block;"></canvas></div>
             </div>
         </div>
@@ -381,6 +489,14 @@ $pageSubtitle = 'System-wide demographic charts and population insights.';
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
 
 document.addEventListener('DOMContentLoaded', function () {
+
+const periodSelect = document.getElementById('analyticsPeriod');
+const customDateFields = document.getElementById('customDateFields');
+periodSelect.addEventListener('change', function () {
+    customDateFields.classList.toggle('d-flex', this.value === 'custom');
+    customDateFields.classList.toggle('d-none', this.value !== 'custom');
+});
+document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
 
 const palette = ['#1a4f7a','#2176ae','#3a9fd8','#43a047','#e53935','#fb8c00','#8e24aa','#00897b'];
 const tt = { ticks:{font:{size:10}}, grid:{color:'rgba(0,0,0,0.06)'} };

@@ -83,10 +83,10 @@ $countStmt->execute([$u['id']]);
 $totalRows = (int)$countStmt->fetchColumn();
 
 $perPage     = 10;
-$currentPage = max(1, (int)($_GET['page'] ?? 1));
+$requestPage = max(1, (int)($_GET['page'] ?? 1));
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
-$currentPage = min($currentPage, $totalPages);
-$offset      = ($currentPage - 1) * $perPage;
+$requestPage = min($requestPage, $totalPages);
+$offset      = ($requestPage - 1) * $perPage;
 
 $myRequests = $db->prepare("SELECT r.*, CONCAT(u.first_name,' ',u.last_name) as reviewed_by_name
     FROM user_requests r
@@ -100,11 +100,11 @@ $myRequests = $myRequests->fetchAll();
 $flash = getFlash('req');
 
 $typeLabels = [
-    'password_change'  => ['label'=>'Password Change',  'icon'=>'bi-key-fill',        'color'=>'warning',   'desc'=>'Request to reset or change your account password.'],
-    'edit_information' => ['label'=>'Edit Information', 'icon'=>'bi-pencil-square',    'color'=>'info',      'desc'=>'Request to update your profile details (name, email, contact, position).'],
-    'reset_2fa'        => ['label'=>'Reset 2FA',        'icon'=>'bi-shield-lock-fill', 'color'=>'danger',    'desc'=>'Request to reset your two-factor authentication (2FA) if you have lost access to your authenticator.'],
-    'new_user'         => ['label'=>'New User',         'icon'=>'bi-person-plus-fill', 'color'=>'success',   'desc'=>'Request to create a new user account for your barangay.'],
-    'access_request'   => ['label'=>'Access Request',   'icon'=>'bi-shield-check',     'color'=>'secondary', 'desc'=>'Request access to a specific module or feature you currently cannot use.'],
+    'password_change'  => ['label'=>'Password Change',  'icon'=>'bi-key-fill',        'color'=>'warning',   'desc'=>'Request a password reset for your account.'],
+    'edit_information' => ['label'=>'Edit Information', 'icon'=>'bi-pencil-square',    'color'=>'info',      'desc'=>'Request changes to your profile details.'],
+    'reset_2fa'        => ['label'=>'Reset 2FA',        'icon'=>'bi-shield-lock-fill', 'color'=>'danger',    'desc'=>'Restore access if you lost your authenticator.'],
+    'new_user'         => ['label'=>'New User',         'icon'=>'bi-person-plus-fill', 'color'=>'success',   'desc'=>'Request an account for a barangay staff member.'],
+    'access_request'   => ['label'=>'Access Request',   'icon'=>'bi-shield-check',     'color'=>'secondary', 'desc'=>'Ask for access to a module or system feature.'],
 ];
 $statusColors = [
     'pending'    => 'warning',
@@ -135,7 +135,106 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <style>
+        .request-modal-content {
+            border: 0;
+            border-radius: 14px;
+            box-shadow: 0 18px 48px rgba(2, 16, 36, 0.2);
+        }
+
+        .request-modal-dialog { max-width: 700px; }
+
+        .req-type-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.65rem;
+            min-height: 76px;
+            margin: 0;
+            padding: 0.75rem !important;
+            border: 1px solid #d5dee8 !important;
+            border-radius: 0.65rem;
+            background-color: #fff;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
+        }
+
+        .req-type-card:hover { border-color: #8eb3d2 !important; }
+
+        .req-type-card.is-selected {
+            border-color: #0d6efd !important;
+            background-color: #f2f7ff;
+        }
+
+        .req-type-card .form-check-input {
+            float: none;
+            flex: 0 0 1rem;
+            width: 1rem;
+            height: 1rem;
+            margin: 0.1rem 0 0;
+            border: 1.5px solid #94a3b8;
+            background-color: #fff;
+        }
+
+        .req-type-card .form-check-input:checked {
+            border-color: #0d6efd;
+            background-color: #0d6efd;
+        }
+
+        .req-type-card .form-check-input:focus { box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18); }
+        .req-type-copy { display: block; min-width: 0; }
+        .req-type-heading { display: block; color: #1f2937; font-size: 0.85rem; font-weight: 600; line-height: 1.25; }
+        .req-type-description { display: block; margin-top: 0.3rem; color: #64748b; font-size: 0.75rem; line-height: 1.35; }
+
+        .request-history-table {
+            width: 100%;
+            min-width: 760px;
+            table-layout: fixed;
+            font-size: 0.78rem !important;
+        }
+
+        .request-history-table th,
+        .request-history-table td {
+            padding: 0.5rem 0.55rem !important;
+            vertical-align: middle;
+        }
+
+        .request-history-table th {
+            white-space: normal !important;
+            line-height: 1.25;
+        }
+
+        .request-history-table th:nth-child(1) { width: 5%; }
+        .request-history-table th:nth-child(2) { width: 14%; }
+        .request-history-table th:nth-child(3) { width: 15%; }
+        .request-history-table th:nth-child(4) { width: 18%; }
+        .request-history-table th:nth-child(5) { width: 11%; }
+        .request-history-table th:nth-child(6) { width: 14%; }
+        .request-history-table th:nth-child(7) { width: 12%; }
+        .request-history-table th:nth-child(8) { width: 11%; }
+
+        .request-history-table td {
+            overflow-wrap: anywhere;
+        }
+
+        .request-history-table .badge {
+            white-space: normal;
+            line-height: 1.25;
+            text-align: left;
+        }
+
+        @media (max-width: 767.98px) {
+            .request-modal-dialog { margin: 0.5rem; }
+            .request-modal-content { max-height: calc(100vh - 1rem); overflow-y: auto; }
+            .request-history-table { min-width: 720px; }
+        }
+
+        @media (max-width: 420px) {
+            .request-type-options > .col-6 { width: 100%; }
+            .request-modal-header,
+            .request-modal-body { padding-right: 1.25rem !important; padding-left: 1.25rem !important; }
+        }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -155,8 +254,9 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
             $cnt = count(array_filter($myRequests, fn($r) => $r['request_type'] === $type));
         ?>
         <div class="col-6 col-md-4">
-            <div class="card h-100" style="cursor:pointer;transition:transform 0.15s;"
-                 onclick="openRequestModal('<?= $type ?>')"
+            <div class="card h-100 request-type-trigger" style="cursor:pointer;transition:transform 0.15s;"
+                 data-request-type="<?= $type ?>"
+                 role="button" tabindex="0" aria-label="Create <?= htmlspecialchars($info['label']) ?>"
                  onmouseover="this.style.transform='translateY(-3px)'"
                  onmouseout="this.style.transform=''">
                 <div class="card-body py-3">
@@ -171,6 +271,9 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
                         </div>
                     </div>
                     <p class="text-muted mb-0" style="font-size:0.75rem;line-height:1.4;"><?= $info['desc'] ?></p>
+                    <div class="small fw-semibold text-primary mt-2">
+                        <i class="bi bi-plus-circle me-1"></i>Create Request
+                    </div>
                 </div>
             </div>
         </div>
@@ -185,7 +288,7 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
             </div>
         </div>
         <div class="table-responsive">
-            <table class="table mb-0" style="font-size:0.85rem;">
+            <table class="table mb-0 request-history-table">
                 <thead>
                     <tr style="background:#f4f7fa;border-bottom:2px solid #d0ecd6;">
                         <th class="ps-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#3a7fa8;border:none;">#</th>
@@ -252,7 +355,7 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
         $queryParams = $_GET; unset($queryParams['page']);
         $baseQuery   = http_build_query($queryParams);
         $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
-        $page = $currentPage; $totalCount = $totalRows; $offset = ($page-1)*$perPage;
+        $page = $requestPage; $totalCount = $totalRows; $offset = ($page - 1) * $perPage;
         $paginationBase = $baseUrl; $paginationLabel = 'request';
         include __DIR__ . '/../includes/pagination.php';
     ?>
@@ -261,61 +364,58 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
 
 <!-- New Request Modal -->
 <div class="modal fade" id="newRequestModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered request-modal-dialog">
         <form method="POST">
             <input type="hidden" name="action" value="submit_request">
             <?= csrfField() ?>
             <input type="hidden" name="request_type" id="modalRequestType" value="password_change">
-            <div class="modal-content" style="border-radius:16px;overflow:hidden;">
-                <div class="d-flex" style="min-height:300px;">
-                    <!-- LEFT -->
-                    <div class="d-flex flex-column align-items-center justify-content-center px-4 py-5"
-                         style="background:linear-gradient(160deg,#1a4f7a 0%,#3a7fa8 100%);min-width:200px;width:200px;">
-                        <div id="reqModalIcon"
-                             style="width:72px;height:72px;background:rgba(255,255,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,0.3);">
-                            <i class="bi bi-key-fill text-white" style="font-size:2rem;" id="reqModalIconI"></i>
-                        </div>
-                        <h5 class="fw-bold mt-3 mb-1 text-white text-center" id="reqModalTitle">Password Change</h5>
-                        <p class="text-white-50 small text-center mb-0">Request to LGU</p>
+            <div class="modal-content request-modal-content">
+                <div class="modal-header request-modal-header border-0 px-4 pt-4 pb-2">
+                    <div>
+                        <h5 class="modal-title fw-bold">Create a Request</h5>
+                        <p class="text-muted small mb-0">Choose a request type and provide the details for LGU review.</p>
                     </div>
-                    <!-- RIGHT -->
-                    <div class="flex-fill d-flex flex-column p-4">
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold small">Request Type <span class="text-danger">*</span></label>
-                            <div class="row g-2">
-                                <?php foreach ($typeLabels as $type => $info): ?>
-                                <div class="col-6">
-                                    <div class="form-check border rounded p-2 req-type-card <?= $type==='password_change'?'border-primary bg-light':'' ?>"
-                                         style="cursor:pointer;" onclick="selectReqType('<?= $type ?>')">
-                                        <input class="form-check-input" type="radio" name="request_type_ui"
-                                               id="rt_<?= $type ?>" value="<?= $type ?>"
-                                               <?= $type==='password_change'?'checked':'' ?>>
-                                        <label class="form-check-label small fw-semibold" for="rt_<?= $type ?>" style="cursor:pointer;">
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body request-modal-body px-4 pt-2">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Request Type <span class="text-danger">*</span></label>
+                        <div class="row g-2 request-type-options">
+                            <?php foreach ($typeLabels as $type => $info): ?>
+                            <div class="col-6">
+                                <label class="form-check req-type-card <?= $type==='password_change'?'is-selected':'' ?>"
+                                       for="rt_<?= $type ?>">
+                                    <input class="form-check-input" type="radio" name="request_type_ui"
+                                           id="rt_<?= $type ?>" value="<?= $type ?>"
+                                           <?= $type==='password_change'?'checked':'' ?>>
+                                    <span class="req-type-copy">
+                                        <span class="req-type-heading">
                                             <i class="bi <?= $info['icon'] ?> me-1 text-<?= $info['color'] ?>"></i>
                                             <?= $info['label'] ?>
-                                        </label>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
+                                        </span>
+                                        <small class="req-type-description"><?= $info['desc'] ?></small>
+                                    </span>
+                                </label>
                             </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold small">Subject <span class="text-danger">*</span></label>
-                            <input type="text" name="subject" class="form-control form-control-sm"
-                                   placeholder="Brief description of your request" required maxlength="200">
-                        </div>
-                        <div class="mb-3 flex-fill">
-                            <label class="form-label fw-semibold small">Details <span class="text-danger">*</span></label>
-                            <textarea name="details" class="form-control form-control-sm" rows="4"
-                                      placeholder="Provide full details of your request..." required></textarea>
-                        </div>
-                        <div class="alert alert-info py-2 small mb-0">
-                            <i class="bi bi-info-circle me-1"></i>
-                            Your request will be sent to the LGU. You will receive a notification once it is reviewed.
+                            <?php endforeach; ?>
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Subject <span class="text-danger">*</span></label>
+                        <input type="text" name="subject" class="form-control form-control-sm"
+                               placeholder="Brief description of your request" required maxlength="200">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Details <span class="text-danger">*</span></label>
+                        <textarea name="details" class="form-control form-control-sm" rows="3"
+                                  placeholder="Provide full details of your request..." required></textarea>
+                    </div>
+                    <div class="alert alert-info py-2 small mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Your request will be sent to the LGU. You will receive a notification once it is reviewed.
+                    </div>
                 </div>
-                <div class="modal-footer border-0 px-4 pb-4 pt-0">
+                <div class="modal-footer request-modal-footer border-0 px-4 pb-4 pt-0">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary fw-semibold">
                         <i class="bi bi-send me-1"></i>Submit Request
@@ -341,27 +441,33 @@ document.querySelectorAll('.page-nav').forEach(function(link) {
     });
 });
 
-const reqTypeInfo = {
-    password_change:  { label: 'Password Change',  icon: 'bi-key-fill' },
-    edit_information: { label: 'Edit Information', icon: 'bi-pencil-square' },
-    reset_2fa:        { label: 'Reset 2FA',         icon: 'bi-shield-lock-fill' },
-    new_user:         { label: 'New User',          icon: 'bi-person-plus-fill' },
-    access_request:   { label: 'Access Request',    icon: 'bi-shield-check' },
-};
+function openRequestModal(type, trigger) {
+    if (!document.getElementById('rt_' + type)) return;
+    selectReqType(type);
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('newRequestModal')).show(trigger);
+}
 
 function selectReqType(type) {
+    const radio = document.getElementById('rt_' + type);
+    if (!radio) return;
     document.getElementById('modalRequestType').value = type;
-    document.getElementById('rt_' + type).checked = true;
-    document.getElementById('reqModalIconI').className = 'bi ' + reqTypeInfo[type].icon + ' text-white';
-    document.getElementById('reqModalTitle').textContent = reqTypeInfo[type].label;
-    document.querySelectorAll('.req-type-card').forEach(c => c.classList.remove('border-primary','bg-light'));
-    document.getElementById('rt_' + type).closest('.req-type-card').classList.add('border-primary','bg-light');
+    radio.checked = true;
+    document.querySelectorAll('.req-type-card').forEach(c => c.classList.remove('is-selected'));
+    radio.closest('.req-type-card').classList.add('is-selected');
 }
 
-function openRequestModal(type) {
-    selectReqType(type);
-    new bootstrap.Modal(document.getElementById('newRequestModal')).show();
-}
+document.querySelectorAll('input[name="request_type_ui"]').forEach(radio => {
+    radio.addEventListener('change', () => selectReqType(radio.value));
+});
+
+document.querySelectorAll('.request-type-trigger').forEach(card => {
+    card.addEventListener('click', () => openRequestModal(card.dataset.requestType, card));
+    card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openRequestModal(card.dataset.requestType, card);
+    });
+});
 </script>
 </body>
 </html>

@@ -184,11 +184,12 @@ $pageSubtitle = '';
 <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
 <style>
 /* ── Layout ─────────────────────────────────────────────── */
 body{background:#f0f6fb;}
 .main-content{background:#f0f6fb;margin-top:80px !important;padding:12px 20px 20px 22px;}
+.main-content, .main-content *{font-style:normal !important;}
 .topbar{height:80px !important;}
 .sidebar-brand{height:80px !important;}
 

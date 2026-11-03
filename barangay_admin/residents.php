@@ -280,6 +280,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 flash('res', 'Resident updated.', 'success');
             }
         }
+
+        $residentNotifMsg = $action === 'add'
+            ? "New resident added: <strong>$fname $lname</strong>."
+            : ($status === 'Deceased'
+                ? "Resident <strong>$fname $lname</strong> was archived as deceased."
+                : "Resident record updated: <strong>$fname $lname</strong>.");
+        sendNotification($u['id'], $residentNotifMsg, $action === 'add' ? 'success' : 'info', 'resident');
+        notifyBarangayAdmins($bid, $residentNotifMsg, $action === 'add' ? 'success' : 'info', 'resident', $u['id']);
         redirect(BASE_URL . '/barangay_admin/residents.php');
     }
 
@@ -463,7 +471,7 @@ $tab          = sanitize($_GET['tab']         ?? 'active'); // active | transfer
 
 // Whitelists — prevent invalid values leaking into queries
 $validGender = ['Male','Female'];
-$validCivil  = ['Single','Married','Widowed','Separated','Annulled'];
+$validCivil  = ['Single','Married','Widowed','Separated'];
 $validVoter  = ['Registered','Not Registered'];
 if (!in_array($filterGender, $validGender)) $filterGender = '';
 if (!in_array($filterCivil,  $validCivil))  $filterCivil  = '';
@@ -604,7 +612,7 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         /* ── Autocomplete wrapper ── */
         .ac-wrapper {
@@ -1146,7 +1154,6 @@ $pageSubtitle = 'Manage and monitor all registered residents in your barangay.';
                             <option value="Married"   <?= $filterCivil==='Married'   ?'selected':'' ?>>Married</option>
                             <option value="Widowed"   <?= $filterCivil==='Widowed'   ?'selected':'' ?>>Widowed</option>
                             <option value="Separated" <?= $filterCivil==='Separated' ?'selected':'' ?>>Separated</option>
-                            <option value="Annulled"  <?= $filterCivil==='Annulled'  ?'selected':'' ?>>Annulled</option>
                         </select>
                     </div>
 

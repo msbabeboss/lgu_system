@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/change_password.php');
         }
 
-        redirect(BASE_URL . '/super_admin/dashboard.php');
+        redirect(BASE_URL . ($user['role'] === 'super_admin' ? '/super_admin/dashboard.php' : '/barangay_admin/dashboard.php'));
     }
 }
 ?>

@@ -8,7 +8,8 @@ require_once __DIR__ . '/helpers/mailer.php';
 // AND: allow force_change panel to render for first-login users
 $isAjaxChangePassword = isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'change_password';
 $isForceChange        = isset($_GET['force_change']) || (isLoggedIn() && ($_SESSION['must_change_password'] ?? false));
-if (isLoggedIn() && !$isAjaxChangePassword && !$isForceChange) {
+$isLandingPreview     = isset($_GET['preview']) && $_GET['preview'] === '1' && isSuperAdmin();
+if (isLoggedIn() && !$isAjaxChangePassword && !$isForceChange && !$isLandingPreview) {
     if (isSuperAdmin()) {
         redirect(BASE_URL . '/super_admin/dashboard.php');
     } else {
@@ -31,7 +32,7 @@ $db = Database::getInstance()->getConnection();
         updated_by INT UNSIGNED NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB"); } catch (\Throwable $e) {}
-    foreach (['login_max_attempts'=>'5','login_lockout_minutes'=>'15',
+    foreach (['login_max_attempts'=>'5',
               'password_min_length'=>'8','password_require_upper'=>'1',
               'password_require_number'=>'1','password_require_special'=>'0'] as $k => $v) {
         try { $db->prepare("INSERT IGNORE INTO system_settings (setting_key,setting_val) VALUES (?,?)")->execute([$k,$v]); } catch (\Throwable $e) {}
@@ -173,8 +174,6 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
 
     // Load lockout settings
     $maxAttempts  = max(1, (int)$landingSetting('login_max_attempts',    '5'));
-    $lockoutMins  = max(1, (int)$landingSetting('login_lockout_minutes', '15'));
-
     $stmt = $db->prepare("SELECT * FROM users WHERE (username=? OR email=?) AND status='active' LIMIT 1");
     $stmt->execute([$username, $username]);
     $user = $stmt->fetch();
@@ -210,7 +209,7 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
         $db->prepare("UPDATE users SET login_attempts=0, locked_until=NULL, login_locked=0 WHERE id=?")->execute([$user['id']]);
 
         // 2FA check
-        if ($user['role']==='super_admin' && !empty($user['two_fa_enabled']) && !empty($user['totp_secret'])) {
+        if (in_array($user['role'], ['super_admin', 'barangay_admin'], true) && !empty($user['two_fa_enabled']) && !empty($user['totp_secret'])) {
             $_SESSION['2fa_pending_user_id'] = $user['id'];
             echo json_encode(['ok'=>true,'redirect'=> BASE_URL . '/verify_2fa.php']); exit;
         }
@@ -250,7 +249,16 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'login') {
                 $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
                 notifySuperAdmins(
                     "🔒 Account <strong>{$lockedName}</strong> (@{$user['username']}) has been <strong>permanently locked</strong> after {$newAttempts} failed login attempt(s) from IP <code>{$ip}</code>. Go to <strong>User Management</strong> to unlock.",
-                    'danger', 'system', $user['id']
+                    'danger',
+                    'system',
+                    (int)$user['id'],
+                    [
+                        'id' => (int)$user['id'],
+                        'name' => $lockedName,
+                        'email' => $user['email'] ?? '',
+                        'role' => $user['role'],
+                        'barangay_id' => $user['barangay_id'] ?? null,
+                    ]
                 );
 
                 if ($isSoleSA) {
@@ -286,8 +294,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
 
     if ($username && $password) {
         $maxAttempts = max(1, (int)$landingSetting('login_max_attempts',    '5'));
-        $lockoutMins = max(1, (int)$landingSetting('login_lockout_minutes', '15'));
-
         $stmt = $db->prepare("SELECT * FROM users WHERE (username=? OR email=?) AND status='active' LIMIT 1");
         $stmt->execute([$username, $username]);
         $user = $stmt->fetch();
@@ -322,7 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
                 goto renderPage;
             }
             $db->prepare("UPDATE users SET login_attempts=0, locked_until=NULL, login_locked=0 WHERE id=?")->execute([$user['id']]);
-            if ($user['role']==='super_admin' && !empty($user['two_fa_enabled']) && !empty($user['totp_secret'])) {
+            if (in_array($user['role'], ['super_admin', 'barangay_admin'], true) && !empty($user['two_fa_enabled']) && !empty($user['totp_secret'])) {
                 $_SESSION['2fa_pending_user_id'] = $user['id'];
                 redirect(BASE_URL . '/verify_2fa.php');
             }
@@ -345,7 +351,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
                     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
                     notifySuperAdmins(
                         "🔒 Account <strong>{$lockedName}</strong> (@{$user['username']}) has been <strong>permanently locked</strong> after {$newAttempts} failed login attempt(s) from IP <code>{$ip}</code>. Go to <strong>User Management</strong> to unlock.",
-                        'danger', 'system'
+                        'danger',
+                        'system',
+                        0,
+                        [
+                            'id' => (int)$user['id'],
+                            'name' => $lockedName,
+                            'email' => $user['email'] ?? '',
+                            'role' => $user['role'],
+                            'barangay_id' => $user['barangay_id'] ?? null,
+                        ]
                     );
                     $loginError = 'Too many failed attempts. Your account has been locked. Please contact the System Administrator to regain access.';
                 } else {
@@ -444,7 +459,7 @@ if ($urlResetToken) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
     <title>Centralized LGU Information Management System</title>
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=4.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/home.css?v=4.5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -737,21 +752,15 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
 
                             <div class="form-group">
                                 <label><i class="fas fa-lock"></i> Current (Temporary) Password</label>
-                                <div class="password-wrapper">
+                                <div class="password-wrapper no-password-toggle">
                                     <input type="password" id="cpCurrent" placeholder="Enter your temporary password">
-                                    <button type="button" class="toggle-pw" onclick="toggleVis('cpCurrent','cpCurrentIcon')">
-                                        <i class="fas fa-eye" id="cpCurrentIcon"></i>
-                                    </button>
                                 </div>
                             </div>
                             <div class="form-group">
                                 <label><i class="fas fa-lock"></i> New Password</label>
-                                <div class="password-wrapper">
+                                <div class="password-wrapper no-password-toggle">
                                     <input type="password" id="cpNew" placeholder="Min 8 chars, letters + numbers"
                                            oninput="checkPwStrengthCp(this.value)">
-                                    <button type="button" class="toggle-pw" onclick="toggleVis('cpNew','cpNewIcon')">
-                                        <i class="fas fa-eye" id="cpNewIcon"></i>
-                                    </button>
                                 </div>
                                 <div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:6px;">
                                     <div id="cpStrengthBar" style="height:4px;border-radius:3px;width:0%;transition:width .3s,background .3s;"></div>
@@ -760,12 +769,9 @@ $bannerUrl = !empty($lc['banner_path']) ? UPLOAD_URL . $lc['banner_path'] : BASE
                             </div>
                             <div class="form-group">
                                 <label><i class="fas fa-lock"></i> Confirm New Password</label>
-                                <div class="password-wrapper">
+                                <div class="password-wrapper no-password-toggle">
                                     <input type="password" id="cpConfirm" placeholder="Repeat new password"
                                            oninput="checkCpMatch()">
-                                    <button type="button" class="toggle-pw" onclick="toggleVis('cpConfirm','cpConfirmIcon')">
-                                        <i class="fas fa-eye" id="cpConfirmIcon"></i>
-                                    </button>
                                 </div>
                                 <small id="cpMatchLabel" style="font-size:0.72rem;"></small>
                             </div>
@@ -1054,16 +1060,47 @@ function submitLogin(e) {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging in...';
 
-    fetch('home.php', {
+    const sendLoginRequest = (csrfToken, retried = false) => fetch('home.php', {
         method: 'POST',
-        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+        },
         body: 'ajax_action=login'
             + '&username=' + encodeURIComponent(username)
             + '&password=' + encodeURIComponent(password)
             + '&login_role=' + encodeURIComponent(loginRole)
-            + '&csrf_token=' + encodeURIComponent(document.querySelector('meta[name="csrf-token"]')?.content || '')
-    })
-    .then(r => r.json())
+            + '&csrf_token=' + encodeURIComponent(csrfToken)
+    }).then(async response => {
+        let data;
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error('Unable to reach the server. Please try again.');
+        }
+        if (response.status === 403 && data.error === 'Invalid CSRF token. Please refresh the page and try again.' && !retried) {
+            const tokenResponse = await fetch('<?= BASE_URL ?>/ajax/get_csrf_token.php', {
+                headers: {'Accept': 'application/json'},
+                cache: 'no-store'
+            });
+            if (!tokenResponse.ok) throw new Error('Unable to refresh your session. Please reload the page.');
+
+            const tokenData = await tokenResponse.json();
+            if (!tokenData.csrf_token) throw new Error('Unable to refresh your session. Please reload the page.');
+
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) meta.setAttribute('content', tokenData.csrf_token);
+            return sendLoginRequest(tokenData.csrf_token, true);
+        }
+        if (!response.ok) {
+            throw new Error(response.status === 403
+                ? 'Your session expired. Please reload the page and try again.'
+                : 'Unable to reach the server. Please try again.');
+        }
+        return data;
+    });
+
+    sendLoginRequest(document.querySelector('meta[name="csrf-token"]')?.content || '')
     .then(data => {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login to System';
@@ -1129,10 +1166,10 @@ function submitLogin(e) {
             window.location.href = data.redirect;
         }
     })
-    .catch(() => {
+    .catch(error => {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login to System';
-        showErr(errEl, 'Something went wrong. Please try again.');
+        showErr(errEl, error.message || 'Something went wrong. Please try again.');
     });
 }
 
@@ -1422,7 +1459,6 @@ function toggleVis(id, iconId) {
     el.type = el.type === 'password' ? 'text' : 'password';
     ic.classList.toggle('fa-eye'); ic.classList.toggle('fa-eye-slash');
 }
-
 // ── Password strength meter ────────────────────────────────
 function checkPwStrength(val) {
     const bar = document.getElementById('pwStrengthBar');

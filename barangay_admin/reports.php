@@ -224,7 +224,7 @@ $draftList = array_filter($manualReports, fn($r)=>$r['status']==='draft');
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
     /* ══ DATA REPORTS SECTION ══════════════════════════════ */
     .data-reports-section {
@@ -402,7 +402,7 @@ $draftList = array_filter($manualReports, fn($r)=>$r['status']==='draft');
         padding: 16px 18px; line-height: 1.8; font-size: .9rem; color: #334155;
         min-height: 180px; flex: 1;
     }
-    div.rpt-content  { white-space: pre-wrap; }
+    div.rpt-content  { white-space: pre-wrap; flex: 0 0 auto; }
     textarea.rpt-content {
         resize: none; outline: none; width: 100%;
         font-family: 'Segoe UI', system-ui, sans-serif;
@@ -421,7 +421,7 @@ $draftList = array_filter($manualReports, fn($r)=>$r['status']==='draft');
     .att-bar {
         padding: 6px 18px 0;
         display: flex; flex-wrap: wrap; gap: 6px;
-        min-height: 0;
+        min-height: 0; flex-shrink: 0;
     }
     .att-bar:empty { padding: 0; }
     .att-chip {
@@ -792,8 +792,8 @@ $draftList = array_filter($manualReports, fn($r)=>$r['status']==='draft');
                     <label for="cmpFileInput">
                         <i class="bi bi-paperclip"></i> Attach File
                     </label>
-                    <input type="file" id="cmpFileInput" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" style="display:none;" onchange="handleFileSelect(this)">
-                    <span class="att-hint">Images, PDF, Word, Excel, TXT · max 10 MB · up to 5 files</span>
+                    <input type="file" id="cmpFileInput" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.txt" style="display:none;" onchange="handleFileSelect(this)">
+                    <span class="att-hint">JPG/JPEG, PNG, GIF, WebP, PDF, Word, Excel, TXT · max 10 MB per file · up to 5 files</span>
                 </div>
                 <!-- pending-upload chips (before save/send) -->
                 <div class="att-bar mt-1" id="cmpPendingChips"></div>

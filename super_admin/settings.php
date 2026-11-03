@@ -49,7 +49,6 @@ $defaults = [
     'password_require_number' => '1',
     'password_require_special'=> '0',
     'login_max_attempts'      => '5',
-    'login_lockout_minutes'   => '15',
     'session_timeout_minutes' => '60',
     'idle_timeout_enabled'    => '1',
     'idle_timeout_minutes'    => '5',
@@ -67,6 +66,18 @@ $defaults = [
 ];
 foreach ($defaults as $k => $v) {
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute([$k, $v]);
+}
+foreach (['super_admin', 'barangay_admin'] as $idleRole) {
+    foreach ([
+        'enabled' => 'idle_timeout_enabled',
+        'minutes' => 'idle_timeout_minutes',
+        'unit' => 'idle_timeout_unit',
+    ] as $idlePart => $legacyKey) {
+        $db->prepare(
+            "INSERT IGNORE INTO system_settings (setting_key, setting_val)
+             SELECT ?, setting_val FROM system_settings WHERE setting_key = ?"
+        )->execute(["idle_{$idleRole}_{$idlePart}", $legacyKey]);
+    }
 }
 // Seed landing content row if not present
 try {
@@ -334,27 +345,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ── Security ───────────────────────────────────────────
     if ($action === 'save_security') {
         $keys = ['password_min_length','password_require_upper','password_require_number',
-                 'password_require_special','login_max_attempts','login_lockout_minutes'];
+                 'password_require_special','login_max_attempts'];
         foreach ($keys as $k) {
             $val = isset($_POST[$k]) ? (string)(int)$_POST[$k] : '0';
             // Clamp sensible ranges
             if ($k === 'password_min_length')     $val = (string)max(6, min(32, (int)$val));
             if ($k === 'login_max_attempts')       $val = (string)max(1, min(20, (int)$val));
-            if ($k === 'login_lockout_minutes')    $val = (string)max(1, min(1440, (int)$val));
             saveSetting($db, $k, $val, $u['id']);
         }
-        // Idle auto-logout settings
-        saveSetting($db, 'idle_timeout_enabled', isset($_POST['idle_timeout_enabled']) ? '1' : '0', $u['id']);
-        $idleUnit = in_array($_POST['idle_timeout_unit'] ?? '', ['seconds','minutes'])
-                        ? $_POST['idle_timeout_unit'] : 'minutes';
-        $idleVal  = (int)($_POST['idle_timeout_minutes'] ?? 5);
-        if ($idleUnit === 'seconds') {
-            $idleVal = max(10, min(300, $idleVal));
-        } else {
-            $idleVal = max(1,  min(120, $idleVal));
+        foreach (['super_admin', 'barangay_admin'] as $idleRole) {
+            $idlePrefix = "idle_{$idleRole}";
+            $idleUnit = in_array($_POST[$idlePrefix . '_unit'] ?? '', ['seconds', 'minutes'], true)
+                ? $_POST[$idlePrefix . '_unit'] : 'minutes';
+            $idleValue = (int)($_POST[$idlePrefix . '_minutes'] ?? 5);
+            $idleValue = $idleUnit === 'seconds'
+                ? max(10, min(300, $idleValue))
+                : max(1, min(120, $idleValue));
+
+            saveSetting($db, $idlePrefix . '_enabled', isset($_POST[$idlePrefix . '_enabled']) ? '1' : '0', $u['id']);
+            saveSetting($db, $idlePrefix . '_minutes', (string)$idleValue, $u['id']);
+            saveSetting($db, $idlePrefix . '_unit', $idleUnit, $u['id']);
         }
-        saveSetting($db, 'idle_timeout_minutes', (string)$idleVal,  $u['id']);
-        saveSetting($db, 'idle_timeout_unit',    $idleUnit,          $u['id']);
 
         logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated Security settings');
         flash('settings', 'Security settings saved.', 'success');
@@ -437,6 +448,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             logActivity($u['id'], 'EDIT_BARANGAY', 'Barangay Management', "Updated portal info for barangay ID $bid");
+            $portalNotif = "Barangay portal settings updated for $name.";
+            notifySuperAdmins($portalNotif, 'info', 'system');
             flash('settings', "Barangay portal settings updated successfully.", 'success');
         } else {
             flash('settings', 'Invalid request. Barangay name is required.', 'danger');
@@ -628,7 +641,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
     <title>Settings — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         /* ── Settings Layout ─────────────────────────────── */
         .main-content { animation: none !important; contain: none !important; }
@@ -649,6 +662,14 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             backface-visibility: hidden; isolation: isolate;
         }
         .settings-content { flex: 1; min-width: 0; }
+        .settings-flash {
+            position: fixed;
+            top: 82px;
+            right: 24px;
+            z-index: 1090;
+            width: min(460px, calc(100vw - 32px));
+            box-shadow: 0 8px 24px rgba(15,35,55,0.2);
+        }
         .settings-sidebar .s-title {
             font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.08em; color: var(--text-muted-color,#3a7fa8); padding: 6px 12px 4px;
@@ -658,7 +679,9 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             border-radius: 10px; font-size: 0.875rem; font-weight: 500;
             color: var(--text-sub,#2a5070); text-decoration: none;
             transition: background 0.15s, color 0.15s; margin-bottom: 2px;
+            font-style: normal !important;
         }
+        .settings-sidebar .s-title { font-style: normal !important; }
         .settings-sidebar .s-link i { font-size: 1rem; width: 20px; text-align: center; }
         .settings-sidebar .s-link:hover { background: rgba(26,79,122,0.07); color: var(--primary,#1a4f7a); }
         .settings-sidebar .s-link.active {
@@ -739,6 +762,9 @@ $pageSubtitle = 'Manage system configuration and preferences.';
         @media (max-width: 768px) {
             .settings-sidebar { position: static; width: 100%; max-height: unset; }
         }
+        @media (max-width: 576px) {
+            .settings-flash { top: 72px; right: 12px; width: calc(100vw - 24px); }
+        }
     </style>
 </head>
 <body>
@@ -748,7 +774,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
 <div class="main-content">
 
     <?php if ($flash): ?>
-        <div class="alert alert-<?= $flash['type'] ?> alert-dismissible fade show mb-3">
+        <div id="settingsFlash" class="alert alert-<?= $flash['type'] ?> alert-dismissible fade show settings-flash">
             <i class="bi bi-<?= $flash['type']==='success'?'check-circle':'exclamation-triangle' ?>-fill me-2"></i>
             <?= $flash['message'] ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -765,7 +791,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
             <a href="#" class="s-link <?= $tab==='notifications'?'active':'' ?>" data-tab="notifications" onclick="loadTab('notifications',this);return false;"><i class="bi bi-bell-fill"></i> Notifications</a>
             <a href="#" class="s-link <?= $tab==='archive'?'active':'' ?>" data-tab="archive" onclick="loadTab('archive',this);return false;"><i class="bi bi-archive-fill"></i> Archive</a>
             <a href="#" class="s-link <?= $tab==='appearance'?'active':'' ?>" data-tab="appearance" onclick="loadTab('appearance',this);return false;"><i class="bi bi-palette-fill"></i> Appearance</a>
-            <a href="#" class="s-link <?= $tab==='authenticator'?'active':'' ?>" data-tab="authenticator" onclick="loadTab('authenticator',this);return false;"><i class="bi bi-shield-check-fill"></i> Authenticator</a>
+            <a href="#" class="s-link <?= $tab==='authenticator'?'active':'' ?>" data-tab="authenticator" onclick="loadTab('authenticator',this);return false;"><i class="bi bi-shield-check"></i> Authenticator</a>
             <div class="s-title mt-3">Account</div>
             <a href="#" class="s-link" onclick="document.getElementById('changePasswordModal').style.display='flex';return false;"><i class="bi bi-key-fill"></i> Change Password</a>
             <a href="<?= BASE_URL ?>/super_admin/audit_log.php" class="s-link"><i class="bi bi-shield-check-fill"></i> Audit Log</a>
@@ -789,7 +815,7 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                     <div class="text-muted" style="font-size:0.8rem;margin-top:2px;">
                         Changes made here are reflected on the <strong>public-facing landing page</strong> that visitors see before logging in.
                         This includes the welcome text, about section, contact info, logos, and banner image.
-                        <a href="<?= BASE_URL ?>/home.php" target="_blank" class="ms-1 fw-semibold" style="color:#1a4f7a;">
+                        <a href="<?= BASE_URL ?>/home.php?preview=1" target="_blank" class="ms-1 fw-semibold" style="color:#1a4f7a;">
                             <i class="bi bi-box-arrow-up-right" style="font-size:0.75rem;"></i> Preview Landing Page
                         </a>
                     </div>
@@ -1158,12 +1184,12 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                         <div class="sc-icon"><i class="bi bi-shield-exclamation"></i></div>
                         <div>
                             <h6>Login Attempt Limits</h6>
-                            <p>Lock accounts after too many failed logins</p>
+                            <p>These login attempt limits apply to users in all barangays.</p>
                         </div>
                     </div>
                     <div class="sc-body">
                         <div class="row g-3">
-                            <div class="col-md-4">
+                            <div class="col-md-6">
                                 <label class="form-label fw-semibold small">Max Failed Attempts</label>
                                 <div class="input-group">
                                     <input type="number" name="login_max_attempts" class="form-control"
@@ -1173,68 +1199,61 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                                 </div>
                                 <div class="form-text">Account locks after this many failures</div>
                             </div>
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold small">Lockout Duration</label>
-                                <div class="input-group">
-                                    <input type="number" name="login_lockout_minutes" class="form-control"
-                                           value="<?= (int)$s('login_lockout_minutes','15') ?>" min="1" max="1440"
-                                           oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                                    <span class="input-group-text">min</span>
-                                </div>
-                                <div class="form-text">How long the account stays locked</div>
-                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Idle Auto-Logout -->
+                <?php foreach ([
+                    'super_admin' => ['Super Admin', 'Applies only to Super Admin accounts.'],
+                    'barangay_admin' => ['Barangay Admin', 'Applies to Barangay Admin accounts, independently of the Super Admin timeout.'],
+                ] as $idleRole => [$idleRoleLabel, $idleRoleDescription]):
+                    $idlePrefix = "idle_{$idleRole}";
+                    $idleUnit = $s($idlePrefix . '_unit', 'minutes');
+                    $idleUnit = in_array($idleUnit, ['seconds', 'minutes'], true) ? $idleUnit : 'minutes';
+                    $idleValue = (int)$s($idlePrefix . '_minutes', '5');
+                    $idleEnabled = $s($idlePrefix . '_enabled', '1') === '1';
+                    $idleId = $idleRole === 'super_admin' ? 'SuperAdmin' : 'BarangayAdmin';
+                ?>
                 <div class="settings-card">
                     <div class="sc-header">
                         <div class="sc-icon"><i class="bi bi-hourglass-split"></i></div>
                         <div>
-                            <h6>Idle Auto-Logout</h6>
-                            <p>Automatically log out users after inactivity</p>
+                            <h6><?= htmlspecialchars($idleRoleLabel) ?> Idle Auto-Logout</h6>
+                            <p><?= htmlspecialchars($idleRoleDescription) ?></p>
                         </div>
                     </div>
                     <div class="sc-body">
-                        <?php
-                        $curIdleUnit = $s('idle_timeout_unit','minutes');
-                        $curIdleUnit = in_array($curIdleUnit,['seconds','minutes']) ? $curIdleUnit : 'minutes';
-                        $curIdleVal  = (int)$s('idle_timeout_minutes','5');
-                        $idleEnabled = $s('idle_timeout_enabled','1') === '1';
-                        ?>
                         <div class="toggle-row">
                             <div>
                                 <div class="tr-label">Enable Idle Timeout</div>
-                                <div class="tr-desc">When idle, users see a "Log In Now" prompt and are auto-logged out after the countdown</div>
+                                <div class="tr-desc">Show the idle warning, then log out after the countdown.</div>
                             </div>
-                            <input type="checkbox" class="form-check-input" name="idle_timeout_enabled"
+                            <input type="checkbox" class="form-check-input" name="<?= $idlePrefix ?>_enabled"
                                    <?= $idleEnabled ? 'checked' : '' ?>
                                    style="width:42px;height:24px;cursor:pointer;"
-                                   onchange="document.getElementById('saIdleMinRow').style.display=this.checked?'flex':'none'">
+                                   onchange="document.getElementById('saIdle<?= $idleId ?>Row').style.display=this.checked?'flex':'none'">
                         </div>
-                        <div class="row g-3 mt-2 align-items-end" id="saIdleMinRow"
+                        <div class="row g-3 mt-2 align-items-end" id="saIdle<?= $idleId ?>Row"
                              style="display:<?= $idleEnabled ? 'flex' : 'none' ?>">
                             <div class="col-md-4">
                                 <label class="form-label fw-semibold small">Idle Timeout After</label>
-                                <input type="number" name="idle_timeout_minutes" id="saIdleValueInput"
-                                       class="form-control"
-                                       value="<?= $curIdleVal ?>"
-                                       min="<?= $curIdleUnit==='seconds'?10:1 ?>"
-                                       max="<?= $curIdleUnit==='seconds'?300:120 ?>"
+                                <input type="number" name="<?= $idlePrefix ?>_minutes" id="saIdle<?= $idleId ?>Value"
+                                       class="form-control" value="<?= $idleValue ?>"
+                                       min="<?= $idleUnit === 'seconds' ? 10 : 1 ?>"
+                                       max="<?= $idleUnit === 'seconds' ? 300 : 120 ?>"
                                        oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label fw-semibold small">Unit</label>
-                                <select name="idle_timeout_unit" id="saIdleUnitSelect" class="form-select"
-                                        onchange="saIdleUnitChanged(this.value)">
-                                    <option value="seconds" <?= $curIdleUnit==='seconds'?'selected':'' ?>>Seconds</option>
-                                    <option value="minutes" <?= $curIdleUnit==='minutes'?'selected':'' ?>>Minutes</option>
+                                <select name="<?= $idlePrefix ?>_unit" id="saIdle<?= $idleId ?>Unit" class="form-select"
+                                        onchange="saIdleUnitChanged('<?= $idleId ?>', this.value)">
+                                    <option value="seconds" <?= $idleUnit === 'seconds' ? 'selected' : '' ?>>Seconds</option>
+                                    <option value="minutes" <?= $idleUnit === 'minutes' ? 'selected' : '' ?>>Minutes</option>
                                 </select>
                             </div>
                             <div class="col-12">
-                                <div class="form-text" id="saIdleRangeHint">
-                                    <?= $curIdleUnit==='seconds'
+                                <div class="form-text" id="saIdle<?= $idleId ?>Hint">
+                                    <?= $idleUnit === 'seconds'
                                         ? '10–300 seconds (e.g. 30 = 30 seconds)'
                                         : '1–120 minutes (e.g. 5 = 5 minutes)' ?>
                                 </div>
@@ -1242,10 +1261,11 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                         </div>
                     </div>
                 </div>
+                <?php endforeach; ?>
                 <script>
-                function saIdleUnitChanged(unit) {
-                    var input = document.getElementById('saIdleValueInput');
-                    var hint  = document.getElementById('saIdleRangeHint');
+                function saIdleUnitChanged(role, unit) {
+                    var input = document.getElementById('saIdle' + role + 'Value');
+                    var hint  = document.getElementById('saIdle' + role + 'Hint');
                     if (unit === 'seconds') {
                         input.min = 10; input.max = 300;
                         if (parseInt(input.value) < 10)  input.value = 30;
@@ -2804,7 +2824,14 @@ function updateFontSize(idx) {
                     method: 'POST',
                     body: formData
                 })
-                .then(r => {
+                .then(async r => {
+                    const responseHtml = await r.text();
+                    const responseDoc = new DOMParser().parseFromString(responseHtml, 'text/html');
+                    const saveNotice = responseDoc.getElementById('settingsFlash');
+                    if (saveNotice) {
+                        document.getElementById('settingsFlash')?.remove();
+                        document.body.appendChild(saveNotice);
+                    }
                     // Server will redirect — just reload the current tab via AJAX
                     const activeLink = document.querySelector('#settingsSidebar .s-link.active[data-tab]');
                     const activeTab = activeLink ? activeLink.dataset.tab : tab;

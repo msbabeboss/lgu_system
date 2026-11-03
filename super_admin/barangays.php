@@ -4,14 +4,33 @@ requireRole('super_admin');
 
 $db = Database::getInstance()->getConnection();
 $u  = currentUser();
+$isAjaxRequest = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
 
-// ── Safe migrations ────────────────────────────────────────
-try { $db->exec("ALTER TABLE barangays ADD COLUMN region VARCHAR(100) NULL"); } catch(PDOException $e){}
-try { $db->exec("ALTER TABLE barangays ADD COLUMN province VARCHAR(100) NULL"); } catch(PDOException $e){}
-try { $db->exec("ALTER TABLE barangays ADD COLUMN zip_code VARCHAR(10) NULL"); } catch(PDOException $e){}
-// Unique constraint — prevents duplicate barangay_name + municipality rows.
-// Silently ignored if the constraint already exists (error code 1061 on MySQL/MariaDB).
-try { $db->exec("ALTER TABLE barangays ADD CONSTRAINT uq_barangays_name_municipality UNIQUE (barangay_name, municipality)"); } catch(PDOException $e){}
+if (!$isAjaxRequest) {
+    // Apply legacy schema changes only when they are missing.
+    $barangayColumns = $db->query("SHOW COLUMNS FROM barangays")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ([
+        'region' => 'VARCHAR(100) NULL',
+        'province' => 'VARCHAR(100) NULL',
+        'zip_code' => 'VARCHAR(10) NULL',
+    ] as $column => $definition) {
+        if (!in_array($column, $barangayColumns, true)) {
+            $db->exec("ALTER TABLE barangays ADD COLUMN `$column` $definition");
+        }
+    }
+
+    $barangayIndexes = $db->query("SHOW INDEX FROM barangays")->fetchAll(PDO::FETCH_ASSOC);
+    $hasNameMunicipalityIndex = false;
+    foreach ($barangayIndexes as $index) {
+        if ($index['Key_name'] === 'uq_barangays_name_municipality') {
+            $hasNameMunicipalityIndex = true;
+            break;
+        }
+    }
+    if (!$hasNameMunicipalityIndex) {
+        $db->exec("ALTER TABLE barangays ADD CONSTRAINT uq_barangays_name_municipality UNIQUE (barangay_name, municipality)");
+    }
+}
 
 // ── POST Actions ───────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -101,34 +120,74 @@ $where = "WHERE 1=1";
 if ($search)       $where .= " AND (b.barangay_name LIKE '%$search%' OR b.municipality LIKE '%$search%')";
 if ($statusFilter) $where .= " AND b.status = '$statusFilter'";
 
-$totalCount = (int)$db->query("SELECT COUNT(*) FROM barangays b $where")->fetchColumn();
+if ($isAjaxRequest) {
+    $totalCount = (int)$db->query("SELECT COUNT(*) FROM barangays b $where")->fetchColumn();
+} else {
+    $summary = $db->query("
+        SELECT
+            COUNT(*) AS total_barangays,
+            COALESCE(SUM(CASE WHEN b.status = 'active' THEN 1 ELSE 0 END), 0) AS total_active,
+            COALESCE(SUM(CASE WHEN b.status = 'inactive' THEN 1 ELSE 0 END), 0) AS total_inactive,
+            COALESCE(SUM(
+                (SELECT COUNT(*) FROM residents r
+                 WHERE r.barangay_id = b.id AND r.resident_status = 'Active')
+            ), 0) AS total_residents
+        FROM barangays b
+        $where
+    ")->fetch();
+    $totalCount = (int)$summary['total_barangays'];
+}
 $totalPages = max(1, (int)ceil($totalCount / $perPage));
 $page       = min($page, $totalPages);
 $offset     = ($page - 1) * $perPage;
 
 $barangays = $db->query("
     SELECT b.*,
-        (SELECT COUNT(*) FROM residents r    WHERE r.barangay_id=b.id AND r.resident_status='Active') AS total_residents,
-        (SELECT COUNT(*) FROM households h   WHERE h.barangay_id=b.id)                                AS total_households,
-        (SELECT COUNT(*) FROM blotter_cases bc WHERE bc.barangay_id=b.id)                             AS total_blotter,
         (SELECT COUNT(*) FROM users us       WHERE us.barangay_id=b.id AND us.status='active')        AS active_users,
-        (SELECT o.full_name FROM officials o
-         WHERE o.barangay_id=b.id AND o.position='Barangay Captain' AND o.status='active'
-         ORDER BY o.term_start DESC LIMIT 1)                                                          AS captain_name,
-        (SELECT o.term_end FROM officials o
-         WHERE o.barangay_id=b.id AND o.position='Barangay Captain' AND o.status='active'
-         ORDER BY o.term_start DESC LIMIT 1)                                                          AS captain_term_end
+        captain.full_name AS captain_name,
+        captain.term_end AS captain_term_end
     FROM barangays b
+    LEFT JOIN officials captain
+        ON captain.id = (
+            SELECT o.id
+            FROM officials o
+            WHERE o.barangay_id = b.id
+              AND o.position = 'Barangay Captain'
+              AND o.status = 'active'
+            ORDER BY o.term_start DESC
+            LIMIT 1
+        )
     $where
     ORDER BY b.barangay_name
     LIMIT $perPage OFFSET $offset
 ")->fetchAll();
 
+$paginationBase = '?' . http_build_query(array_filter(['search' => $search, 'status' => $statusFilter]));
+$paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
+$paginationLabel = 'barangay';
+
+if ($isAjaxRequest) {
+    ob_start();
+    include __DIR__ . '/../includes/barangay_table_rows.php';
+    $rowsHtml = ob_get_clean();
+
+    ob_start();
+    include __DIR__ . '/../includes/pagination.php';
+    $paginationHtml = ob_get_clean();
+
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'rowsHtml' => $rowsHtml,
+        'paginationHtml' => $paginationHtml,
+    ], JSON_THROW_ON_ERROR);
+    exit;
+}
+
 $flash         = getFlash('brgy');
 $pageTitle     = 'Barangay List';
-$totalActive   = count(array_filter($barangays, fn($b) => $b['status'] === 'active'));
-$totalInactive = count($barangays) - $totalActive;
-$totalResidents = array_sum(array_column($barangays, 'total_residents'));
+$totalActive   = (int)$summary['total_active'];
+$totalInactive = (int)$summary['total_inactive'];
+$totalResidents = (int)$summary['total_residents'];
 ?>
 
 <?php
@@ -145,7 +204,7 @@ $pageSubtitle = 'Manage all barangays in the system.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -164,7 +223,7 @@ $pageSubtitle = 'Manage all barangays in the system.';
     <!-- Summary Cards -->
     <div class="d-flex gap-3 mb-3 flex-wrap justify-content-center">
         <div style="background:#fff;border-radius:14px;padding:12px 28px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);min-width:170px;">
-            <div style="font-size:1.25rem;font-weight:800;color:#1a4f7a;line-height:1;"><?= count($barangays) ?></div>
+            <div style="font-size:1.25rem;font-weight:800;color:#1a4f7a;line-height:1;"><?= $totalCount ?></div>
             <div style="font-size:0.7rem;color:#3a7fa8;margin-top:2px;">Total Barangays</div>
         </div>
         <div style="background:#fff;border-radius:14px;padding:12px 28px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -1px rgba(0,0,0,0.05),0 0 0 1px rgba(0,0,0,0.04);min-width:140px;">
@@ -206,6 +265,8 @@ $pageSubtitle = 'Manage all barangays in the system.';
         </form>
     </div>
 
+    <div id="barangayPaginationStatus" role="status" aria-live="polite"></div>
+
     <!-- Table -->
     <div style="background:#fff;border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.07);border:1px solid #e0f0e4;overflow:hidden;">
         <div class="table-responsive">
@@ -223,92 +284,14 @@ $pageSubtitle = 'Manage all barangays in the system.';
                     </tr>
                 </thead>
                 <tbody>
-                <?php if (empty($barangays)): ?>
-                    <tr><td colspan="8" class="text-center text-muted py-5"><i class="bi bi-inbox" style="font-size:2.5rem;opacity:0.3;display:block;margin-bottom:10px;"></i>No barangays found.</td></tr>
-                <?php else: ?>
-                    <?php foreach ($barangays as $b): ?>
-                    <tr style="border-bottom:1px solid #e8f4fb;transition:background 0.15s;<?= $b['status'] === 'inactive' ? 'background:#f8fafc;' : '' ?>" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='<?= $b['status'] === 'inactive' ? '#f8fafc' : '' ?>'">
-
-                        <td class="ps-4 py-3" style="border:none;"><input type="checkbox" class="form-check-input row-check" value="<?= $b['id'] ?>"></td>
-
-                        <!-- Barangay ID -->
-                        <td class="py-3" style="border:none;"><code class="small">#<?= str_pad($b['id'], 4, '0', STR_PAD_LEFT) ?></code></td>
-
-                        <!-- Barangay Name -->
-                        <td class="py-3" style="border:none;">
-                            <div class="fw-semibold"><?= htmlspecialchars($b['barangay_name']) ?></div>
-                            <div class="text-muted" style="font-size:0.7rem;">
-                                <i class="bi bi-person-badge me-1"></i><?= $b['active_users'] ?> admin<?= $b['active_users'] != 1 ? 's' : '' ?>
-                            </div>
-                        </td>
-
-                        <!-- Municipality -->
-                        <td class="py-3 small" style="border:none;"><?= htmlspecialchars($b['municipality']) ?></td>
-
-                        <!-- Barangay Captain -->
-                        <td class="py-3" style="border:none;">
-                            <?php if ($b['captain_name']): ?>
-                                <div class="fw-semibold small"><?= htmlspecialchars($b['captain_name']) ?></div>
-                                <?php if ($b['captain_term_end']): ?>
-                                    <div class="text-muted" style="font-size:0.7rem;">
-                                        <i class="bi bi-calendar me-1"></i>Until <?= date('M Y', strtotime($b['captain_term_end'])) ?>
-                                    </div>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <span class="text-muted small fst-italic">Not assigned</span>
-                            <?php endif; ?>
-                        </td>
-
-                        <!-- Status -->
-                        <td class="py-3" style="border:none;">
-                            <span class="badge <?= $b['status']==='active' ? 'bg-success' : 'bg-secondary' ?>">
-                                <?= ucfirst($b['status']) ?>
-                            </span>
-                        </td>
-
-                        <!-- Date Registered -->
-                        <td class="py-3 small text-nowrap" style="border:none;">
-                            <?= date('M d, Y', strtotime($b['created_at'])) ?>
-                            <div class="text-muted" style="font-size:0.7rem;"><?= date('h:i A', strtotime($b['created_at'])) ?></div>
-                        </td>
-
-                        <!-- Actions -->
-                        <td class="pe-4 py-3" style="border:none;">
-                            <div class="d-flex gap-1">
-                                <button class="btn btn-xs btn-outline-info"
-                                        onclick="viewBrgy(<?= htmlspecialchars(json_encode($b)) ?>)"
-                                        title="View Details">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                                <button class="btn btn-xs btn-outline-primary"
-                                        onclick="editBrgy(<?= htmlspecialchars(json_encode($b)) ?>)"
-                                        title="Edit">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <?php if ($b['status'] === 'active'): ?>
-                                <button class="btn btn-xs btn-outline-warning"
-                                        onclick="openArchiveBrgy(<?= $b['id'] ?>, '<?= htmlspecialchars(addslashes($b['barangay_name'])) ?>')"
-                                        title="Archive">
-                                    <i class="bi bi-archive"></i>
-                                </button>
-                                <?php endif; ?>
-                            </div>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                    <?php include __DIR__ . '/../includes/barangay_table_rows.php'; ?>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
-<?php
-$paginationBase = '?' . http_build_query(array_filter(['search' => $search, 'status' => $statusFilter]));
-$paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-$paginationLabel = 'barangay';
-include __DIR__ . '/../includes/pagination.php';
-?>
+<?php include __DIR__ . '/../includes/pagination.php'; ?>
 
 <!-- ── View Modal ─────────────────────────────────────────── -->
 <div class="modal fade" id="viewBrgyModal" tabindex="-1">
@@ -620,8 +603,68 @@ function openArchiveBrgy(id, name) {
     document.getElementById('archBrgyName').textContent = name;
     bootstrap.Modal.getOrCreateInstance(document.getElementById('archiveBrgyModal')).show();
 }
+
+let barangayPageLoading = false;
+async function loadBarangayPage(url, addHistory = true) {
+    if (barangayPageLoading) return;
+
+    const tableBody = document.querySelector('#brgyTable tbody');
+    const pagination = document.querySelector('.table-pagination');
+    const status = document.getElementById('barangayPaginationStatus');
+    if (!tableBody || !pagination || !status) return;
+
+    barangayPageLoading = true;
+    tableBody.setAttribute('aria-busy', 'true');
+    status.textContent = 'Loading barangays...';
+    status.className = 'small text-muted text-center py-2';
+
+    try {
+        const response = await fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (!response.ok) {
+            throw new Error(`Page request failed (${response.status}).`);
+        }
+
+        const pageData = await response.json();
+        if (typeof pageData.rowsHtml !== 'string' || typeof pageData.paginationHtml !== 'string') {
+            throw new Error('The server response did not contain the barangay table.');
+        }
+
+        const paginationTemplate = document.createElement('template');
+        paginationTemplate.innerHTML = pageData.paginationHtml;
+        const newPagination = paginationTemplate.content.querySelector('.table-pagination');
+        if (!newPagination) {
+            throw new Error('The server response did not contain pagination controls.');
+        }
+
+        tableBody.innerHTML = pageData.rowsHtml;
+        pagination.replaceWith(newPagination);
+        document.getElementById('selectAll').checked = false;
+        if (addHistory) {
+            history.pushState({}, '', url);
+        }
+        status.textContent = '';
+        status.className = '';
+    } catch (error) {
+        console.error('Unable to load the requested barangay page:', error);
+        status.textContent = 'Hindi na-load ang page. Subukan ulit.';
+        status.className = 'alert alert-danger py-2 mb-2';
+    } finally {
+        barangayPageLoading = false;
+        tableBody.removeAttribute('aria-busy');
+    }
+}
+
+document.addEventListener('click', event => {
+    const link = event.target.closest('.table-pagination a.page-link');
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    loadBarangayPage(link.href);
+});
+
+window.addEventListener('popstate', () => loadBarangayPage(window.location.href, false));
 </script>
 <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
 </body>
 </html>
-

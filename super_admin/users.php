@@ -436,6 +436,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(BASE_URL . '/super_admin/users.php');
     }
 
+    if ($action === 'reset_2fa') {
+        $id = (int)($_POST['user_id'] ?? 0);
+        $targetQuery = $db->prepare("SELECT id, first_name, last_name, username, role, two_fa_enabled, totp_secret FROM users WHERE id=? LIMIT 1");
+        $targetQuery->execute([$id]);
+        $target = $targetQuery->fetch();
+
+        if (!$target || !in_array($target['role'], ['super_admin', 'barangay_admin'], true)) {
+            flash('users', 'The selected administrator account could not be found.', 'danger');
+            redirect(BASE_URL . '/super_admin/users.php');
+        }
+        if ((int)$target['id'] === (int)$u['id']) {
+            flash('users', 'You cannot reset your own 2FA here. Use Settings > Authenticator instead.', 'warning');
+            redirect(BASE_URL . '/super_admin/users.php');
+        }
+        if (empty($target['two_fa_enabled']) && empty($target['totp_secret'])) {
+            flash('users', '2FA is already off for this account.', 'info');
+            redirect(BASE_URL . '/super_admin/users.php');
+        }
+
+        $db->prepare("UPDATE users SET two_fa_enabled=0, totp_secret=NULL WHERE id=?")->execute([$id]);
+        $targetName = trim($target['first_name'] . ' ' . $target['last_name']);
+        logActivity($u['id'], 'RESET_2FA', 'Users', "Reset 2FA for $targetName (@{$target['username']})");
+        sendNotification(
+            $id,
+            'Your two-factor authentication was reset by the System Administrator. Set it up again in Settings to protect your account.',
+            'warning',
+            'system'
+        );
+        flash('users', "2FA reset for <strong>" . htmlspecialchars($targetName) . "</strong>. They can set it up again in Settings.", 'success');
+        redirect(BASE_URL . '/super_admin/users.php');
+    }
+
 }
 
 // Safe migrations for barangay address fields
@@ -496,6 +528,25 @@ $query .= " ORDER BY u.role='super_admin' DESC, u.created_at DESC";
 $userQuery = $db->prepare($query);
 $userQuery->execute($queryParams);
 $users = $userQuery->fetchAll();
+$drawerUserPayload = static function (array $user): array {
+    return [
+        'id' => (int)$user['id'],
+        'first_name' => $user['first_name'] ?? '',
+        'middle_name' => $user['middle_name'] ?? '',
+        'last_name' => $user['last_name'] ?? '',
+        'email' => $user['email'] ?? '',
+        'profile_photo' => $user['profile_photo'] ?? null,
+        'role' => $user['role'] ?? '',
+        'status' => $user['status'] ?? '',
+        'login_locked' => (int)($user['login_locked'] ?? 0),
+        'username' => $user['username'] ?? '',
+        'barangay_name' => $user['barangay_name'] ?? '',
+        'position' => $user['position'] ?? '',
+        'contact_number' => $user['contact_number'] ?? '',
+        'two_fa_enabled' => !empty($user['two_fa_enabled']),
+        'has_totp_secret' => !empty($user['totp_secret']),
+    ];
+};
 $existingUsernames = array_map('strtolower', $db->query("SELECT username FROM users")->fetchAll(PDO::FETCH_COLUMN));
 $existingFullNames = $db->query("
     SELECT first_name, middle_name, last_name
@@ -539,7 +590,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
     .user-drawer {
         position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
@@ -715,8 +766,10 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                             <?php endif; ?>
                         </td>
                         <td class="py-3" style="border:none;">
-                            <?php if (!empty($usr['two_fa_enabled'])): ?>
+                            <?php if (!empty($usr['two_fa_enabled']) && !empty($usr['totp_secret'])): ?>
                             <span style="background:#e0f2fb;color:#0d3a5c;font-size:0.72rem;font-weight:600;padding:4px 10px;border-radius:20px;"><i class="bi bi-shield-check me-1"></i>On</span>
+                            <?php elseif (!empty($usr['two_fa_enabled'])): ?>
+                            <span style="background:#fff7ed;color:#c2410c;font-size:0.72rem;font-weight:600;padding:4px 10px;border-radius:20px;"><i class="bi bi-exclamation-triangle me-1"></i>Needs reset</span>
                             <?php else: ?>
                             <span style="background:#f1f5f9;color:#64748b;font-size:0.72rem;font-weight:500;padding:4px 10px;border-radius:20px;"><i class="bi bi-shield me-1"></i>Off</span>
                             <?php endif; ?>
@@ -724,12 +777,12 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                         <td class="pe-4 py-3" style="border:none;">
                             <?php if ($isMe): ?>
                             <button class="btn btn-sm" style="font-size:0.78rem;border-radius:8px;padding:4px 14px;background:rgba(26,79,122,0.08);color:#1a4f7a;border:1px solid rgba(26,79,122,0.15);"
-                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($usr)) ?>)">
+                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($drawerUserPayload($usr))) ?>)">
                                 <i class="bi bi-person-circle me-1"></i>My Profile
                             </button>
                             <?php else: ?>
                             <button class="btn btn-sm btn-outline-primary" style="font-size:0.78rem;border-radius:8px;padding:4px 14px;"
-                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($usr)) ?>)">
+                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($drawerUserPayload($usr))) ?>)">
                                 <i class="bi bi-sliders me-1"></i>Manage
                             </button>
                             <?php endif; ?>
@@ -785,6 +838,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                         <th class="py-3" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#3a7fa8;background:transparent;border:none;">Barangay</th>
                         <th class="py-3" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#3a7fa8;background:transparent;border:none;">Position</th>
                         <th class="py-3" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#3a7fa8;background:transparent;border:none;">Status</th>
+                        <th class="py-3" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#3a7fa8;background:transparent;border:none;">2FA</th>
                         <th class="pe-4 py-3" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#3a7fa8;background:transparent;border:none;">Action</th>
                     </tr>
                 </thead>
@@ -822,9 +876,18 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
                             <span style="background:#fff0f0;color:#c62828;font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:20px;"><i class="bi bi-slash-circle me-1"></i>Blocked</span>
                             <?php endif; ?>
                         </td>
+                        <td class="py-3" style="border:none;">
+                            <?php if (!empty($usr['two_fa_enabled']) && !empty($usr['totp_secret'])): ?>
+                            <span style="background:#e0f2fb;color:#0d3a5c;font-size:0.72rem;font-weight:600;padding:4px 10px;border-radius:20px;"><i class="bi bi-shield-check me-1"></i>On</span>
+                            <?php elseif (!empty($usr['two_fa_enabled'])): ?>
+                            <span style="background:#fff7ed;color:#c2410c;font-size:0.72rem;font-weight:600;padding:4px 10px;border-radius:20px;"><i class="bi bi-exclamation-triangle me-1"></i>Needs reset</span>
+                            <?php else: ?>
+                            <span style="background:#f1f5f9;color:#64748b;font-size:0.72rem;font-weight:500;padding:4px 10px;border-radius:20px;"><i class="bi bi-shield me-1"></i>Off</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="pe-4 py-3" style="border:none;">
                             <button class="btn btn-sm btn-outline-primary" style="font-size:0.78rem;border-radius:8px;padding:4px 14px;"
-                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($usr)) ?>)">
+                                    onclick="openUserDrawer(<?= htmlspecialchars(json_encode($drawerUserPayload($usr))) ?>)">
                                 <i class="bi bi-sliders me-1"></i>Manage
                             </button>
                         </td>
@@ -1487,6 +1550,11 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <?= csrfField() ?>
     <input type="hidden" name="action" value="unlock_login">
     <input type="hidden" name="user_id" id="unlockLoginUserId">
+</form>
+<form method="POST" id="reset2FAForm" style="display:none;">
+    <?= csrfField() ?>
+    <input type="hidden" name="action" value="reset_2fa">
+    <input type="hidden" name="user_id" id="reset2FAUserId">
 </form>
 <!-- Reset Password Modal -->
 <div class="modal fade" id="resetPassModal" tabindex="-1" data-bs-backdrop="static">
@@ -2230,6 +2298,10 @@ function openUserDrawer(userJson) {
     document.getElementById('drawerBarangay').textContent  = u.barangay_name || '—';
     document.getElementById('drawerPosition').textContent  = u.position || '—';
     document.getElementById('drawerContact').textContent   = u.contact_number || '—';
+    const hasTwoFactor = Boolean(u.two_fa_enabled && u.has_totp_secret);
+    document.getElementById('drawerTwoFaStatus').textContent = hasTwoFactor
+        ? 'On'
+        : (u.two_fa_enabled ? 'Needs reset' : (u.has_totp_secret ? 'Setup pending' : 'Off'));
 
     // Block/Unblock button
     const isActive = u.status === 'active';
@@ -2250,11 +2322,14 @@ function openUserDrawer(userJson) {
     const blockedBanner      = document.getElementById('drawerBlockedBanner');
     const loginLockedBanner  = document.getElementById('drawerLoginLockedBanner');
     const unlockLoginBtn     = document.getElementById('drawerUnlockLoginBtn');
+    const resetTwoFaBtn      = document.getElementById('drawerReset2FABtn');
+    const currentUserId      = <?= (int)$u['id'] ?>;
     const isLoginLocked      = parseInt(u.login_locked || 0) === 1;
 
     blockedBanner.style.display     = (!isActive && !isLoginLocked) ? 'block' : 'none';
     loginLockedBanner.style.display = isLoginLocked ? 'block' : 'none';
     unlockLoginBtn.style.display    = isLoginLocked ? 'block' : 'none';
+    resetTwoFaBtn.style.display = parseInt(u.id) !== currentUserId && (hasTwoFactor || u.has_totp_secret) ? 'block' : 'none';
 
     // Manage Profile button — only for superadmins
     const manageProfileBtn = document.getElementById('drawerManageProfileBtn');
@@ -2267,6 +2342,15 @@ function openUserDrawer(userJson) {
             manageProfileBtn.onclick = function () {
                 closeUserDrawer();
                 window.location.href = '<?= BASE_URL ?>/super_admin/settings.php?tab=profile';
+            };
+            resetTwoFaBtn.onclick = function () {
+                closeUserDrawer();
+                setTimeout(() => {
+                    if (confirm('Reset two-factor authentication for ' + fullName + '?\n\nThey will need to set it up again in Settings.')) {
+                        document.getElementById('reset2FAUserId').value = u.id;
+                        document.getElementById('reset2FAForm').submit();
+                    }
+                }, 350);
             };
         } else {
             // Another SA — open their profile in a modal (edit user)
@@ -2417,6 +2501,10 @@ function approveUnlockRequest(requestId, btn) {
                     <span class="text-muted"><i class="bi bi-phone me-2"></i>Contact</span>
                     <span id="drawerContact" class="fw-semibold"></span>
                 </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted"><i class="bi bi-shield-lock me-2"></i>Two-Factor Authentication</span>
+                    <span id="drawerTwoFaStatus" class="fw-semibold"></span>
+                </div>
             </div>
         </div>
 
@@ -2439,6 +2527,9 @@ function approveUnlockRequest(requestId, btn) {
             </button>
             <button class="btn btn-warning w-100 text-start fw-semibold" id="drawerUnlockLoginBtn" style="display:none;">
                 <i class="bi bi-lock-fill me-2"></i>Unlock Login
+            </button>
+            <button class="btn btn-outline-danger w-100 text-start fw-semibold" id="drawerReset2FABtn" style="display:none;">
+                <i class="bi bi-shield-x me-2"></i>Reset 2FA
             </button>
             <button class="btn btn-outline-danger w-100 text-start" id="drawerArchiveBtn">
                 <i class="bi bi-archive me-2"></i>Archive User

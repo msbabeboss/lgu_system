@@ -82,16 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newOfficialId = (int)$db->lastInsertId();
             logActivity($u['id'], 'ADD_OFFICIAL', 'Officials', "Added: $fullName");
 
-            // Email confirmation
-            if ($u['email']) {
-                sendTransactionLogEmail(
-                    $u['email'], $u['name'],
-                    'ADD_OFFICIAL', 'Officials',
-                    "Added official: $fullName — Position: $position — Barangay: {$brgyInfo['barangay_name']}",
-                    EMAIL_BASE_URL . '/barangay_admin/officials.php'
-                );
-            }
-
             // ── Realtime notifications ─────────────────────────────────
             $brgyLabel  = $brgyInfo['barangay_name'] ?? 'Barangay';
             $notifMsg   = "🏛️ New official added: <strong>$fullName</strong> — $position — ID: <strong>#$newOfficialId</strong> (<em>$brgyLabel</em>)";
@@ -99,8 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             sendNotification($u['id'], $notifMsg, 'success', 'system');
             // Notify peer barangay admins in same barangay (exclude self)
             notifyBarangayAdmins($bid, $notifMsg, 'success', 'system', $u['id']);
-            // Notify all super admins
-            notifySuperAdmins($notifMsg, 'info', 'system');
 
             // ── "Register as Resident" button was clicked ──────────────
             // Store all collected data in session so add_resident.php can pre-fill the form.
@@ -135,22 +123,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->prepare("UPDATE officials SET full_name=?,position=?,term_start=?,term_end=?,contact=?,email=?,status=? WHERE id=? AND barangay_id=?")->execute([$fullName,$position,$termStart,$termEnd,$contact,$email,$status,$id,$bid]);
             }
             logActivity($u['id'], 'EDIT_OFFICIAL', 'Officials', "Updated details for official $fullName");
-            // Email confirmation to the admin who edited the official
-            if ($u['email']) {
-                sendTransactionLogEmail(
-                    $u['email'], $u['name'],
-                    'EDIT_OFFICIAL', 'Officials',
-                    "Updated official: $fullName — Position: $position — Barangay: {$brgyInfo['barangay_name']}",
-                    EMAIL_BASE_URL . '/barangay_admin/officials.php'
-                );
-            }
-
             // ── Realtime notifications ─────────────────────────────────
             $brgyLabel = $brgyInfo['barangay_name'] ?? 'Barangay';
             $notifMsg  = "✏️ Official updated: <strong>$fullName</strong> — $position — ID: <strong>#$id</strong> (<em>$brgyLabel</em>)";
             sendNotification($u['id'], $notifMsg, 'info', 'system');
             notifyBarangayAdmins($bid, $notifMsg, 'info', 'system', $u['id']);
-            notifySuperAdmins($notifMsg, 'info', 'system');
 
             // ── "Register as Resident" was clicked on the Edit form ──────
             if (!empty($_POST['register_as_resident'])) {
@@ -210,22 +187,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                ->execute([$id, json_encode($data), $u['id']]);
             $db->prepare("UPDATE officials SET status='inactive' WHERE id=? AND barangay_id=?")->execute([$id, $bid]);
             logActivity($u['id'], 'ARCHIVE_OFFICIAL', 'Officials', "Archived official {$data['full_name']} — Reason: $reason");
-            // Email confirmation to the admin who archived the official
-            if ($u['email']) {
-                sendTransactionLogEmail(
-                    $u['email'], $u['name'],
-                    'ARCHIVE_OFFICIAL', 'Officials',
-                    "Archived official: {$data['full_name']} — Reason: $reason — Barangay: {$brgyInfo['barangay_name']}",
-                    EMAIL_BASE_URL . '/barangay_admin/officials.php'
-                );
-            }
-
             // ── Realtime notifications ─────────────────────────────────
             $brgyLabel   = $brgyInfo['barangay_name'] ?? 'Barangay';
             $notifMsgArch = "📦 Official archived: <strong>{$data['full_name']}</strong> — {$data['position']} — ID: <strong>#$id</strong> (<em>$brgyLabel</em>) — Reason: $reason";
             sendNotification($u['id'], $notifMsgArch, 'warning', 'system');
             notifyBarangayAdmins($bid, $notifMsgArch, 'warning', 'system', $u['id']);
-            notifySuperAdmins($notifMsgArch, 'warning', 'system');
 
             flash('off', 'Official archived.', 'info');
         }
@@ -256,23 +222,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // due to a resident transfer. They must remain visible so the barangay admin can
 // manually archive them from the Officials page.
 
-$officials = $db->prepare(
-    "SELECT * FROM officials
-     WHERE barangay_id=?
-       AND id NOT IN (SELECT record_id FROM archives WHERE table_name='officials')
-     ORDER BY FIELD(status,'active','inactive'), position"
-);
-$officials->execute([$bid]);
-$allOfficials = $officials->fetchAll();
+$positions = ['Barangay Captain','Barangay Kagawad','SK Chairperson','SK Kagawad','Barangay Secretary','Barangay Treasurer','BPSO','Lupon Member'];
+$search = is_string($_GET['search'] ?? null) ? trim($_GET['search']) : '';
+$filterPosition = is_string($_GET['position'] ?? null) ? trim($_GET['position']) : '';
+$filterStatus = is_string($_GET['status'] ?? null) ? trim($_GET['status']) : '';
+if (!in_array($filterPosition, $positions, true)) $filterPosition = '';
+if (!in_array($filterStatus, ['active', 'inactive'], true)) $filterStatus = '';
+
+$where = "FROM officials o
+          WHERE o.barangay_id=?
+            AND o.id NOT IN (SELECT record_id FROM archives WHERE table_name='officials')";
+$filterParams = [$bid];
+if ($search !== '') {
+    $where .= " AND (o.full_name LIKE ? OR o.position LIKE ? OR o.contact LIKE ? OR o.email LIKE ?)";
+    $searchLike = '%' . $search . '%';
+    array_push($filterParams, $searchLike, $searchLike, $searchLike, $searchLike);
+}
+if ($filterPosition !== '') {
+    $where .= " AND o.position = ?";
+    $filterParams[] = $filterPosition;
+}
+if ($filterStatus !== '') {
+    $where .= " AND o.status = ?";
+    $filterParams[] = $filterStatus;
+}
+
+$totalStmt = $db->prepare("SELECT COUNT(*) $where");
+$totalStmt->execute($filterParams);
+$totalRows = (int)$totalStmt->fetchColumn();
 
 // Pagination
 $perPage     = 10;
 $currentPage = max(1, (int)($_GET['page'] ?? 1));
-$totalRows   = count($allOfficials);
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
 $currentPage = min($currentPage, $totalPages);
 $listOffset  = ($currentPage - 1) * $perPage;   // renamed: avoid shadowing by pagination.php
-$officials   = array_slice($allOfficials, $listOffset, $perPage);
+$officialsStmt = $db->prepare(
+    "SELECT o.* $where
+     ORDER BY FIELD(o.status,'active','inactive'), o.position
+     LIMIT $perPage OFFSET $listOffset"
+);
+$officialsStmt->execute($filterParams);
+$officials = $officialsStmt->fetchAll();
 
 // Count active officials with term ended (not yet archived)
 $expiredStmt = $db->prepare(
@@ -295,7 +286,6 @@ $transferredIds = array_column($transferredStmt->fetchAll(), 'id');
 $transferredIds = array_map('intval', $transferredIds);
 
 $flash = getFlash('off');
-$positions = ['Barangay Captain','Barangay Kagawad','SK Chairperson','SK Kagawad','Barangay Secretary','Barangay Treasurer','BPSO','Lupon Member'];
 
 // Fetch official term years from system settings (default 3)
 $termYearsRow = $db->query("SELECT setting_val FROM system_settings WHERE setting_key='official_term_years'")->fetchColumn();
@@ -316,7 +306,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         /* ── Officials modal shared styles ── */
         .off-field-label {
@@ -417,6 +407,37 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
         <div class="card-body py-2">
             <div class="d-flex gap-2 align-items-center flex-wrap">
                 <span class="text-muted small"><?= number_format($totalRows) ?> official<?= $totalRows !== 1 ? 's' : '' ?></span>
+                <form method="GET" class="d-flex gap-2 align-items-center flex-wrap ms-2" id="officialSearchForm">
+                    <div class="input-group input-group-sm ac-wrapper" style="width:260px;">
+                        <span class="input-group-text bg-white border-end-0">
+                            <i class="bi bi-search text-muted"></i>
+                        </span>
+                        <input type="text" id="officialSearchInput" name="search" class="form-control border-start-0 border-end-0 ps-0"
+                               placeholder="Search name, position, contact..." autocomplete="off"
+                               value="<?= htmlspecialchars($search, ENT_QUOTES) ?>">
+                        <span class="input-group-text bg-white border-start-0 p-0">
+                            <span id="officialSearchClear" title="Clear search"
+                                  style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#9ca3af;border-radius:4px;<?= $search !== '' ? '' : 'visibility:hidden;' ?>">
+                                <i class="bi bi-x-lg" style="font-size:0.75rem;"></i>
+                            </span>
+                        </span>
+                        <div class="ac-list" id="officialAcList"></div>
+                    </div>
+                    <select name="position" class="form-select form-select-sm" aria-label="Filter by position" style="width:auto;min-width:170px;" onchange="this.form.submit()">
+                        <option value="">All Positions</option>
+                        <?php foreach ($positions as $positionOption): ?>
+                            <option value="<?= htmlspecialchars($positionOption, ENT_QUOTES) ?>" <?= $filterPosition === $positionOption ? 'selected' : '' ?>><?= htmlspecialchars($positionOption) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <select name="status" class="form-select form-select-sm" aria-label="Filter by status" style="width:auto;min-width:130px;" onchange="this.form.submit()">
+                        <option value="">All Statuses</option>
+                        <option value="active" <?= $filterStatus === 'active' ? 'selected' : '' ?>>Active</option>
+                        <option value="inactive" <?= $filterStatus === 'inactive' ? 'selected' : '' ?>>Inactive</option>
+                    </select>
+                    <?php if ($search !== '' || $filterPosition !== '' || $filterStatus !== ''): ?>
+                        <a href="<?= BASE_URL ?>/barangay_admin/officials.php" class="btn btn-sm btn-outline-secondary">Clear filters</a>
+                    <?php endif; ?>
+                </form>
                 <?php if ($expiredCount > 0): ?>
                 <form method="POST" class="d-inline ms-1" onsubmit="return confirm('Auto-archive <?= $expiredCount ?> term-ended official(s) whose term has already ended?')">
                     <input type="hidden" name="action" value="auto_archive_expired">
@@ -544,7 +565,12 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
 
     <!-- Pagination -->
     <?php
-        $queryParams = $_GET; unset($queryParams['page']);
+        $queryParams = array_filter([
+            'search' => $search,
+            'position' => $filterPosition,
+            'status' => $filterStatus,
+        ], static fn($value) => $value !== '');
+        unset($queryParams['page']);
         $baseQuery   = http_build_query($queryParams);
         $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
     ?>
@@ -1559,5 +1585,21 @@ function escHtml(s) {
 }
 </script>
 <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
+<script src="<?= BASE_URL ?>/assets/js/autocomplete.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    initAutocomplete(
+        'officialSearchInput',
+        'officialAcList',
+        '<?= BASE_URL ?>/ajax/search_officials.php',
+        'officialSearchClear',
+        function(item) {
+            const input = document.getElementById('officialSearchInput');
+            input.value = item.id;
+            input.form.submit();
+        }
+    );
+});
+</script>
 </body>
 </html>

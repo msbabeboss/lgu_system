@@ -63,6 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resName->execute([$residentId]);
         $resName = $resName->fetchColumn() ?: 'Resident';
         logActivity($u['id'], 'ADD_HH_MEMBER', 'Households', "Added $resName to household #$hhId as $relationship");
+        $memberNotif = "$resName added to household #$hhId.";
+        sendNotification($u['id'], $memberNotif, 'success', 'system');
+        notifyBarangayAdmins($bid, $memberNotif, 'success', 'system', $u['id']);
         flash('hh', "$resName added to household.", 'success');
         redirect(BASE_URL . '/barangay_admin/households.php');
     }
@@ -83,6 +86,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $db->prepare("UPDATE household_members SET relationship=? WHERE id=?")->execute([$relationship, $memberId]);
         logActivity($u['id'], 'EDIT_HH_MEMBER', 'Households', "Updated member #$memberId relationship to $relationship");
+        $memberNotif = "Household member #$memberId relationship updated.";
+        sendNotification($u['id'], $memberNotif, 'info', 'system');
+        notifyBarangayAdmins($bid, $memberNotif, 'info', 'system', $u['id']);
         flash('hh', 'Member relationship updated.', 'success');
         redirect(BASE_URL . '/barangay_admin/households.php');
     }
@@ -116,6 +122,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resName->execute([$resId]);
         $resName = $resName->fetchColumn() ?: 'Resident';
         logActivity($u['id'], 'REMOVE_HH_MEMBER', 'Households', "Removed $resName from household #$hhId");
+        $memberNotif = "$resName removed from household #$hhId.";
+        sendNotification($u['id'], $memberNotif, 'info', 'system');
+        notifyBarangayAdmins($bid, $memberNotif, 'info', 'system', $u['id']);
         flash('hh', "$resName removed from household.", 'info');
         redirect(BASE_URL . '/barangay_admin/households.php');
     }
@@ -132,6 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($household) {
             archiveRecord($u['id'], 'households', $id, $household, $reason);
             $db->prepare("UPDATE households SET status='Archived', archive_reason=? WHERE id=? AND barangay_id=?")->execute([$reason, $id, $bid]);
+            $archiveNotif = "Household {$household['household_code']} archived.";
+            sendNotification($u['id'], $archiveNotif, 'warning', 'system');
+            notifyBarangayAdmins($bid, $archiveNotif, 'warning', 'system', $u['id']);
             flash('hh', 'Household archived successfully.', 'success');
         }
         redirect(BASE_URL . '/barangay_admin/households.php');
@@ -139,25 +151,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $search = sanitize($_GET['search'] ?? '');
+$filterIncome = is_string($_GET['income_range'] ?? null) ? trim($_GET['income_range']) : '';
+$filterStatus = is_string($_GET['status'] ?? null) ? trim($_GET['status']) : '';
+$sortOrder = is_string($_GET['sort'] ?? null) ? $_GET['sort'] : 'newest';
+if (!in_array($sortOrder, ['newest', 'oldest'], true)) $sortOrder = 'newest';
+
+$filterOptionsStmt = $db->prepare(
+    "SELECT DISTINCT h.income_range
+     FROM households h
+     WHERE h.barangay_id = ? AND h.status != 'Archived'
+       AND h.income_range IS NOT NULL AND h.income_range != ''
+     ORDER BY h.income_range"
+);
+$filterOptionsStmt->execute([$bid]);
+$incomeOptions = $filterOptionsStmt->fetchAll(PDO::FETCH_COLUMN);
+
+$filterOptionsStmt = $db->prepare(
+    "SELECT DISTINCT h.status
+     FROM households h
+     WHERE h.barangay_id = ? AND h.status != 'Archived'
+       AND h.status IS NOT NULL AND h.status != ''
+     ORDER BY h.status"
+);
+$filterOptionsStmt->execute([$bid]);
+$statusOptions = $filterOptionsStmt->fetchAll(PDO::FETCH_COLUMN);
+
+if (!in_array($filterIncome, $incomeOptions, true)) $filterIncome = '';
+if (!in_array($filterStatus, $statusOptions, true)) $filterStatus = '';
+
 $perPage = 10;
 $page    = max(1, (int)($_GET['page'] ?? 1));
 $offset  = ($page - 1) * $perPage;
 
-$baseWhere = "FROM households h LEFT JOIN addresses a ON h.address_id=a.id LEFT JOIN residents r ON h.head_resident_id=r.id WHERE h.barangay_id=$bid AND h.status != 'Archived'";
+$baseWhere = "FROM households h LEFT JOIN addresses a ON h.address_id=a.id LEFT JOIN residents r ON h.head_resident_id=r.id WHERE h.barangay_id=? AND h.status != 'Archived'";
+$queryParams = [$bid];
 if ($search) {
-    $s = $db->quote('%' . $search . '%');
     $baseWhere .= " AND (
-        h.household_code LIKE $s OR
-        r.first_name LIKE $s OR r.last_name LIKE $s OR r.middle_name LIKE $s OR
-        CONCAT(r.first_name,' ',r.last_name) LIKE $s OR
-        CONCAT(r.last_name,' ',r.first_name) LIKE $s OR
-        CONCAT(r.first_name,' ',r.middle_name,' ',r.last_name) LIKE $s OR
-        CONCAT(r.last_name,', ',r.first_name,' ',r.middle_name) LIKE $s OR
-        CONCAT(r.last_name,', ',r.first_name) LIKE $s
+        h.household_code LIKE ? OR
+        r.first_name LIKE ? OR r.last_name LIKE ? OR r.middle_name LIKE ? OR
+        CONCAT(r.first_name,' ',r.last_name) LIKE ? OR
+        CONCAT(r.last_name,' ',r.first_name) LIKE ? OR
+        CONCAT(r.first_name,' ',r.middle_name,' ',r.last_name) LIKE ? OR
+        CONCAT(r.last_name,', ',r.first_name,' ',r.middle_name) LIKE ? OR
+        CONCAT(r.last_name,', ',r.first_name) LIKE ?
     )";
+    $searchLike = '%' . $search . '%';
+    array_push($queryParams, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike, $searchLike);
 }
 
-$totalCount = (int)$db->query("SELECT COUNT(*) $baseWhere")->fetchColumn();
+if ($filterIncome !== '') {
+    $baseWhere .= " AND h.income_range = ?";
+    $queryParams[] = $filterIncome;
+}
+if ($filterStatus !== '') {
+    $baseWhere .= " AND h.status = ?";
+    $queryParams[] = $filterStatus;
+}
+
+$countStmt = $db->prepare("SELECT COUNT(*) $baseWhere");
+$countStmt->execute($queryParams);
+$totalCount = (int)$countStmt->fetchColumn();
 $totalPages = max(1, (int)ceil($totalCount / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
@@ -167,8 +220,10 @@ $query = "SELECT h.*, a.purok, a.street, a.zone, a.region as addr_region, a.prov
     (SELECT COUNT(*) FROM household_members hm2 JOIN residents r2 ON hm2.resident_id=r2.id WHERE hm2.household_id=h.id AND r2.is_senior=1) AS live_senior,
     (SELECT COUNT(*) FROM household_members hm2 JOIN residents r2 ON hm2.resident_id=r2.id WHERE hm2.household_id=h.id AND r2.is_pwd=1) AS live_pwd,
     (SELECT COUNT(*) FROM household_members hm2 JOIN residents r2 ON hm2.resident_id=r2.id WHERE hm2.household_id=h.id AND r2.resident_status='Active') AS live_active
-    $baseWhere ORDER BY h.created_at DESC LIMIT $perPage OFFSET $offset";
-$households = $db->query($query)->fetchAll();
+    $baseWhere ORDER BY h.created_at " . ($sortOrder === 'oldest' ? 'ASC' : 'DESC') . ", h.id " . ($sortOrder === 'oldest' ? 'ASC' : 'DESC') . " LIMIT $perPage OFFSET $offset";
+$householdsStmt = $db->prepare($query);
+$householdsStmt->execute($queryParams);
+$households = $householdsStmt->fetchAll();
 
 $residents = $db->prepare(
     "SELECT r.id,
@@ -201,7 +256,7 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
@@ -219,7 +274,7 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
     <div class="card mb-3">
         <div class="card-body py-2">
             <div class="d-flex gap-2 flex-wrap align-items-center">
-                <form method="GET" class="d-flex gap-2 align-items-center flex-fill" id="searchForm">
+                <form method="GET" class="d-flex gap-2 flex-wrap align-items-center flex-fill" id="searchForm">
                     <div class="input-group input-group-sm ac-wrapper" style="width:240px;">
                         <span class="input-group-text bg-white border-end-0" style="border-color:#dee2e6;">
                             <i class="bi bi-search text-muted" style="font-size:0.8rem;"></i>
@@ -237,6 +292,25 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
                         </span>
                         <div class="ac-list" id="hhAcList"></div>
                     </div>
+                    <select name="sort" class="form-select form-select-sm" aria-label="Sort households by date" style="width:auto;min-width:165px;" onchange="this.form.submit()">
+                        <option value="newest" <?= $sortOrder === 'newest' ? 'selected' : '' ?>>Newest to Oldest</option>
+                        <option value="oldest" <?= $sortOrder === 'oldest' ? 'selected' : '' ?>>Oldest to Newest</option>
+                    </select>
+                    <select name="income_range" class="form-select form-select-sm" aria-label="Filter by income range" style="width:auto;min-width:165px;" onchange="this.form.submit()">
+                        <option value="">All Income Ranges</option>
+                        <?php foreach ($incomeOptions as $option): ?>
+                            <option value="<?= htmlspecialchars($option) ?>" <?= $filterIncome === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <select name="status" class="form-select form-select-sm" aria-label="Filter by status" style="width:auto;min-width:125px;" onchange="this.form.submit()">
+                        <option value="">All Statuses</option>
+                        <?php foreach ($statusOptions as $option): ?>
+                            <option value="<?= htmlspecialchars($option) ?>" <?= $filterStatus === $option ? 'selected' : '' ?>><?= htmlspecialchars($option) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if ($filterIncome !== '' || $filterStatus !== '' || $sortOrder !== 'newest'): ?>
+                        <a href="<?= BASE_URL ?>/barangay_admin/households.php<?= $search !== '' ? '?' . http_build_query(['search' => $search]) : '' ?>" class="btn btn-sm btn-outline-secondary">Clear filters</a>
+                    <?php endif; ?>
                     <span class="text-muted small"><?= $totalCount ?> households</span>
                 </form>
                 <div class="d-flex gap-2 ms-auto">
@@ -338,7 +412,12 @@ $pageSubtitle = 'Manage household records and family groupings in your barangay.
     </div>
     <div class="mt-3 p-2 bg-white rounded">
         <?php
-        $paginationBase = '?' . http_build_query(array_filter(['search' => $search]));
+        $paginationBase = '?' . http_build_query(array_filter([
+            'search' => $search,
+            'income_range' => $filterIncome,
+            'status' => $filterStatus,
+            'sort' => $sortOrder,
+        ], static fn($value) => $value !== ''));
         $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
         $paginationLabel = 'household';
         include __DIR__ . '/../includes/pagination.php';

@@ -103,6 +103,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         redirect(BASE_URL . '/super_admin/reports.php');
     }
+
+    if ($action === 'archive_manual_report') {
+        $id = (int)($_POST['report_id'] ?? 0);
+        $db->beginTransaction();
+        try {
+            $row = $db->prepare("
+                SELECT mr.*, b.barangay_name
+                FROM manual_reports mr
+                LEFT JOIN barangays b ON b.id = mr.barangay_id
+                WHERE mr.id = ? AND mr.status = 'sent'
+                FOR UPDATE
+            ");
+            $row->execute([$id]);
+            $data = $row->fetch(PDO::FETCH_ASSOC);
+            if (!$data) {
+                $db->rollBack();
+                flash('rep', 'Manual report not found or already archived.', 'warning');
+                redirect(BASE_URL . '/super_admin/reports.php?tab=manual_reports');
+            }
+
+            $attachmentStmt = $db->prepare("SELECT * FROM manual_report_attachments WHERE report_id = ? ORDER BY id");
+            $attachmentStmt->execute([$id]);
+            $data['_attachments'] = $attachmentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $db->prepare("INSERT INTO archives (table_name,record_id,data_json,archived_by) VALUES ('manual_reports',?,?,?)")
+               ->execute([$id, json_encode($data, JSON_THROW_ON_ERROR), $u['id']]);
+            $db->prepare("DELETE FROM manual_report_attachments WHERE report_id = ?")->execute([$id]);
+            $db->prepare("DELETE FROM manual_reports WHERE id = ?")->execute([$id]);
+            $db->commit();
+
+            logActivity($u['id'], 'ARCHIVE_MANUAL_REPORT', 'Reports', "Archived manual report: {$data['report_title']} from {$data['barangay_name']}");
+            flash('rep', 'Manual report archived. You can restore it from the Archive page.', 'info');
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        $returnParams = ['tab' => 'manual_reports'];
+        foreach (['mr_search', 'mr_barangay', 'mr_type'] as $filter) {
+            if (!empty($_GET[$filter])) {
+                $returnParams[$filter] = $_GET[$filter];
+            }
+        }
+        redirect(BASE_URL . '/super_admin/reports.php?' . http_build_query($returnParams));
+    }
 }
 
 // ── Main section tab: data_reports | manual_reports ───────
@@ -148,7 +195,7 @@ $manualReportAttachments = [];
 if (!empty($manualReports)) {
     $reportIds = array_map(fn($report) => (int)$report['id'], $manualReports);
     $placeholders = implode(',', array_fill(0, count($reportIds), '?'));
-    $attachmentStmt = $db->prepare("SELECT id, report_id, original_name, file_size, mime_type
+    $attachmentStmt = $db->prepare("SELECT id, report_id, original_name, file_path, file_size, mime_type
         FROM manual_report_attachments WHERE report_id IN ($placeholders) ORDER BY created_at ASC");
     $attachmentStmt->execute($reportIds);
     foreach ($attachmentStmt->fetchAll(PDO::FETCH_ASSOC) as $attachment) {
@@ -242,7 +289,7 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
 </head>
 <style>
 /* dl-box buttons — matches barangay_admin/reports.php exactly */
@@ -356,11 +403,14 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
     .sa-mr-dfooter { padding:12px 24px; border-top:1px solid #e2eaf2; background:#f8fafc; display:flex; align-items:center; flex-shrink:0; }
     .sa-mr-content { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:18px 20px; white-space:pre-wrap; line-height:1.8; font-size:.9rem; color:#334155; min-height:180px; }
     .sa-mr-attachments { margin-top:16px; }
-    .sa-mr-attachment-grid { display:flex; flex-wrap:wrap; gap:10px; }
+    .sa-mr-attachment-note { margin:0 0 10px; color:#64748b; font-size:.72rem; line-height:1.45; }
+    .sa-mr-attachment-grid { display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px; }
     .sa-mr-attachment { display:flex; align-items:center; gap:10px; max-width:100%; padding:8px 10px; border:1px solid #dbe5ef; border-radius:8px; background:#fff; color:#1a4f7a; text-decoration:none; }
     .sa-mr-attachment:hover { border-color:#8fb1d1; background:#f8fbff; color:#1a4f7a; }
-    .sa-mr-attachment img { width:52px; height:52px; object-fit:cover; border-radius:5px; }
+    .sa-mr-attachment-image { display:flex; flex-direction:column; align-items:stretch; width:min(100%, 360px); padding:10px; }
+    .sa-mr-attachment img { display:block; width:100%; height:auto; max-height:320px; object-fit:contain; border-radius:5px; background:#f8fafc; }
     .sa-mr-attachment-name { max-width:260px; overflow-wrap:anywhere; font-size:.78rem; font-weight:600; }
+    .sa-mr-attachment-image .sa-mr-attachment-name { max-width:none; margin-top:8px; }
     </style>
 
     <div class="sa-mr-shell">
@@ -446,6 +496,19 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
                     <span style="font-size:.8rem;color:#16a34a;"><i class="bi bi-send-check-fill me-1"></i>Received from Barangay</span>
                     <span class="ms-auto text-muted small" id="mrMeta"></span>
                     <span id="mrSeenStatus" style="font-size:.78rem;margin-left:12px;"></span>
+                    <form method="POST" class="ms-3" id="archiveManualReportForm">
+                        <input type="hidden" name="action" value="archive_manual_report">
+                        <?= csrfField() ?>
+                        <input type="hidden" name="report_id" id="archiveManualReportId">
+                        <?php foreach (['mr_search', 'mr_barangay', 'mr_type'] as $filter): ?>
+                            <?php if (!empty($_GET[$filter])): ?>
+                            <input type="hidden" name="<?= $filter ?>" value="<?= htmlspecialchars($_GET[$filter]) ?>">
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                        <button type="button" class="btn btn-sm btn-outline-warning" id="archiveManualReportButton" onclick="openManualReportArchiveModal()" disabled>
+                            <i class="bi bi-archive me-1"></i>Archive
+                        </button>
+                    </form>
                 </div>
             </div>
 
@@ -635,21 +698,6 @@ $pageSubtitle = 'Review, approve, and manage barangay reports.';
         $window = 2;
     ?>
     <?php $page = (int)$currentPage; $totalCount = (int)$totalRows; $offset = (int)$offset; $paginationBase = $baseUrl; $paginationLabel = 'report'; include __DIR__ . '/../includes/pagination.php'; ?>
-    <?php if ($totalPages === 1): ?>
-    <nav class="mt-1" aria-label="Report pagination controls">
-        <ul class="pagination pagination-sm mb-0 justify-content-center">
-            <li class="page-item disabled">
-                <span class="page-link"><i class="bi bi-chevron-left"></i></span>
-            </li>
-            <li class="page-item active" aria-current="page">
-                <span class="page-link">1</span>
-            </li>
-            <li class="page-item disabled">
-                <span class="page-link"><i class="bi bi-chevron-right"></i></span>
-            </li>
-        </ul>
-    </nav>
-    <?php endif; ?>
     <?php endif; ?>
 
     <?php endif; /* end mainTab === data_reports */ ?>
@@ -930,6 +978,12 @@ function openMR(el) {
     el.classList.add('active');
 
     const r     = JSON.parse(el.dataset.mr);
+    const archiveIdInput = document.getElementById('archiveManualReportId');
+    const archiveButton = document.getElementById('archiveManualReportButton');
+    if (archiveIdInput) archiveIdInput.value = r.id;
+    if (archiveButton) archiveButton.disabled = false;
+    const archiveName = document.getElementById('archiveManualReportName');
+    if (archiveName) archiveName.textContent = r.title + ' — ' + (r.barangay || 'Unknown Barangay');
     const icon  = mrTypeIcons[r.type]  || '📄';
     const bg    = mrTypeBg[r.type]     || '#f1f5f9';
     const color = mrTypeColor[r.type]  || '#374151';
@@ -1012,11 +1066,18 @@ function renderManualReportAttachments(attachments) {
     const heading = document.createElement('div');
     heading.className = 'small fw-semibold text-secondary mb-2';
     heading.innerHTML = '<i class="bi bi-paperclip me-1"></i>Attachments (' + attachments.length + ')';
+    const note = document.createElement('p');
+    note.className = 'sa-mr-attachment-note';
+    note.textContent = 'Accepted files: JPG/JPEG, PNG, GIF, WebP, PDF, Word, Excel, and TXT. Maximum 10 MB per file, up to 5 files per report.';
     const grid = document.createElement('div');
     grid.className = 'sa-mr-attachment-grid';
 
     attachments.forEach(function(attachment) {
-        const url = '<?= BASE_URL ?>/super_admin/manual_report_attachment.php?id=' + encodeURIComponent(attachment.id);
+        const attachmentPath = String(attachment.file_path || '')
+            .split('/')
+            .map(encodeURIComponent)
+            .join('/');
+        const url = '<?= BASE_URL ?>/uploads/' + attachmentPath;
         const link = document.createElement('a');
         link.className = 'sa-mr-attachment';
         link.href = url;
@@ -1024,10 +1085,16 @@ function renderManualReportAttachments(attachments) {
         link.rel = 'noopener';
 
         if (typeof attachment.mime_type === 'string' && attachment.mime_type.startsWith('image/')) {
+            link.classList.add('sa-mr-attachment-image');
             const image = document.createElement('img');
             image.src = url;
             image.alt = attachment.original_name;
             image.loading = 'lazy';
+            image.addEventListener('error', function() {
+                image.alt = 'Image preview unavailable. Open the attachment to retry.';
+                image.style.minHeight = '80px';
+                image.style.background = '#fee2e2';
+            }, { once: true });
             link.appendChild(image);
         } else {
             const icon = document.createElement('i');
@@ -1043,7 +1110,7 @@ function renderManualReportAttachments(attachments) {
         grid.appendChild(link);
     });
 
-    container.append(heading, grid);
+    container.append(heading, note, grid);
 }
 
 // Auto-open first item on manual reports tab
@@ -1096,6 +1163,50 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+
+<!-- Archive Manual Report Modal -->
+<div class="modal fade" id="archiveManualReportModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius:16px; overflow:hidden;">
+            <div class="d-flex">
+                <div class="d-flex flex-column align-items-center justify-content-center px-4 py-5"
+                     style="background:linear-gradient(160deg,#b45309 0%,#f59e0b 100%); min-width:200px; width:200px; align-self:stretch;">
+                    <div style="width:72px;height:72px;background:rgba(255,255,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,0.3);">
+                        <i class="bi bi-archive-fill text-white" style="font-size:2rem;"></i>
+                    </div>
+                    <h5 class="fw-bold mt-3 mb-1 text-white text-center">Archive Manual Report</h5>
+                    <p class="text-white-50 small text-center mb-0">This action is reversible</p>
+                </div>
+                <div class="flex-fill d-flex flex-column justify-content-between p-4">
+                    <div>
+                        <p class="mb-1">You are about to archive:</p>
+                        <p class="fw-bold fs-6" id="archiveManualReportName"></p>
+                        <div class="alert alert-warning small py-2 mb-0">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            This report will be moved to the Archive page, where it can be restored later.
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-warning flex-fill fw-semibold" onclick="submitManualReportArchive()">
+                            <i class="bi bi-check-lg me-1"></i>Confirm Archive
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openManualReportArchiveModal() {
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('archiveManualReportModal')).show();
+}
+
+function submitManualReportArchive() {
+    bootstrap.Modal.getInstance(document.getElementById('archiveManualReportModal')).hide();
+    document.getElementById('archiveManualReportForm').requestSubmit();
+}
+</script>
 </body>
 </html>
-

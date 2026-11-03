@@ -22,41 +22,108 @@ $brgy->execute([$bid]);
 $brgy = $brgy->fetch();
 
 // ── Date range filter ──────────────────────────────────────
-$from     = sanitize($_GET['from'] ?? date('Y-m-01'));
-$to       = sanitize($_GET['to']   ?? date('Y-m-d'));
-$brgyName = htmlspecialchars($brgy['barangay_name'] ?? 'Barangay');
+$today = new DateTimeImmutable('today');
+$todayString = $today->format('Y-m-d');
+$periodLabels = [
+    'current_month' => 'Current Month',
+    'last_3_months' => 'Last 3 Months',
+    'last_6_months' => 'Last 6 Months',
+    'last_12_months' => 'Last 12 Months',
+    'custom' => 'Custom Range',
+];
+$requestedPeriod = $_GET['period'] ?? '';
+$filterError = '';
+$hasCustomDates = isset($_GET['from']) || isset($_GET['to']);
+if (!is_string($requestedPeriod)) {
+    $requestedPeriod = '';
+    $filterError = 'Hindi valid ang napiling date range.';
+} elseif ($requestedPeriod !== '' && !isset($periodLabels[$requestedPeriod])) {
+    if ($hasCustomDates) {
+        $requestedPeriod = 'custom';
+    } else {
+        $filterError = 'Hindi kilala ang napiling date range. Ipinapakita ang kasalukuyang buwan.';
+        $requestedPeriod = '';
+    }
+}
 
-$whereDate = "DATE(created_at) BETWEEN '$from' AND '$to'";
-// Certificates use date_issued (explicit issue date), not created_at
-$whereDateCert = "date_issued BETWEEN '$from' AND '$to'";
+if (isset($periodLabels[$requestedPeriod]) && $requestedPeriod !== 'custom') {
+    $period = $requestedPeriod;
+    $monthsBack = [
+        'current_month' => 0,
+        'last_3_months' => 2,
+        'last_6_months' => 5,
+        'last_12_months' => 11,
+    ][$period];
+    $from = $today->modify('first day of this month')->modify("-$monthsBack months")->format('Y-m-d');
+    $to = $todayString;
+} elseif ($requestedPeriod === 'custom' || $hasCustomDates) {
+    $period = 'custom';
+    $parseDate = static function ($value): ?DateTimeImmutable {
+        if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return null;
+        }
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date && $date->format('Y-m-d') === $value ? $date : null;
+    };
+    $customFrom = $parseDate($_GET['from'] ?? null);
+    $customTo = $parseDate($_GET['to'] ?? null);
+    if (!$customFrom || !$customTo || $customFrom > $customTo || $customTo > $today) {
+        $filterError = 'Pumili ng valid na custom date range na hindi lalampas sa kasalukuyang petsa.';
+        $period = 'current_month';
+        $from = $today->modify('first day of this month')->format('Y-m-d');
+        $to = $todayString;
+    } else {
+        $from = $customFrom->format('Y-m-d');
+        $to = $customTo->format('Y-m-d');
+    }
+} else {
+    $period = 'current_month';
+    $from = $today->modify('first day of this month')->format('Y-m-d');
+    $to = $todayString;
+}
+
+$brgyName = htmlspecialchars($brgy['barangay_name'] ?? 'Barangay');
+$selectedPeriodLabel = date('F j', strtotime($from)) . (date('Y-m', strtotime($from)) === date('Y-m', strtotime($to))
+    ? '–' . date('j, Y', strtotime($to))
+    : ', ' . date('Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+$periodCount = static function (string $table, string $dateColumn) use ($db, $bid, $from, $to): int {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM $table WHERE barangay_id=? AND DATE($dateColumn) BETWEEN ? AND ?");
+    $stmt->execute([$bid, $from, $to]);
+    return (int)$stmt->fetchColumn();
+};
 
 // ── KPI Cards ─────────────────────────────────────────────
 $kpi = [];
 $kpi['total_residents']  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE barangay_id=$bid AND resident_status='Active'")->fetchColumn();
-$kpi['new_residents']    = (int)$db->query("SELECT COUNT(*) FROM residents WHERE barangay_id=$bid AND $whereDate")->fetchColumn();
+$kpi['new_residents']    = $periodCount('residents', 'created_at');
 $kpi['total_households'] = (int)$db->query("SELECT COUNT(*) FROM households WHERE barangay_id=$bid AND status='Active'")->fetchColumn();
-$kpi['certs_issued']     = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE barangay_id=$bid AND $whereDateCert")->fetchColumn();
-$kpi['blotter_cases']    = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=$bid AND $whereDate")->fetchColumn();
+$kpi['certs_issued']     = $periodCount('certificates', 'date_issued');
+$kpi['blotter_cases']    = $periodCount('blotter_cases', 'created_at');
 $kpi['officials']        = (int)$db->query("SELECT COUNT(*) FROM officials WHERE barangay_id=$bid AND status='active'")->fetchColumn();
 
-// ── Monthly trends (12 months, anchored to latest record) ──
-// Find the most recent record across residents, certificates, and blotter
-$latestResident = $db->query("SELECT MAX(created_at) FROM residents WHERE barangay_id=$bid")->fetchColumn();
-$latestCert     = $db->query("SELECT MAX(date_issued) FROM certificates WHERE barangay_id=$bid")->fetchColumn();
-$latestBlotter  = $db->query("SELECT MAX(created_at) FROM blotter_cases WHERE barangay_id=$bid")->fetchColumn();
-
-// Use the most recent date found; fall back to today if DB is completely empty
-$latestDates = array_filter([$latestResident, $latestCert, $latestBlotter]);
-$anchorDate  = $latestDates ? max($latestDates) : date('Y-m-d');
-$anchorTs    = strtotime($anchorDate);
-
+// ── Monthly trends within the selected period ──────────────
+$trendStmt = $db->prepare("SELECT DATE_FORMAT(created_at,'%Y-%m') AS period, COUNT(*) AS total
+    FROM residents WHERE barangay_id=? AND DATE(created_at) BETWEEN ? AND ? GROUP BY period");
+$trendStmt->execute([$bid, $from, $to]);
+$trendResidents = $trendStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+$trendStmt = $db->prepare("SELECT DATE_FORMAT(date_issued,'%Y-%m') AS period, COUNT(*) AS total
+    FROM certificates WHERE barangay_id=? AND DATE(date_issued) BETWEEN ? AND ? GROUP BY period");
+$trendStmt->execute([$bid, $from, $to]);
+$trendCertificates = $trendStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+$trendStmt = $db->prepare("SELECT DATE_FORMAT(created_at,'%Y-%m') AS period, COUNT(*) AS total
+    FROM blotter_cases WHERE barangay_id=? AND DATE(created_at) BETWEEN ? AND ? GROUP BY period");
+$trendStmt->execute([$bid, $from, $to]);
+$trendBlotter = $trendStmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $monthLabels = []; $monthNewRes = []; $monthCerts = []; $monthBlotter = [];
-for ($i = 11; $i >= 0; $i--) {
-    $m = date('Y-m', strtotime("-$i months", $anchorTs));
-    $monthLabels[]  = date('M Y', strtotime("-$i months", $anchorTs));
-    $monthNewRes[]  = (int)$db->query("SELECT COUNT(*) FROM residents WHERE barangay_id=$bid AND DATE_FORMAT(created_at,'%Y-%m')='$m'")->fetchColumn();
-    $monthCerts[]   = (int)$db->query("SELECT COUNT(*) FROM certificates WHERE barangay_id=$bid AND DATE_FORMAT(date_issued,'%Y-%m')='$m'")->fetchColumn();
-    $monthBlotter[] = (int)$db->query("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id=$bid AND DATE_FORMAT(created_at,'%Y-%m')='$m'")->fetchColumn();
+$monthCursor = new DateTimeImmutable(date('Y-m-01', strtotime($from)));
+$toMonth = new DateTimeImmutable(date('Y-m-01', strtotime($to)));
+while ($monthCursor <= $toMonth) {
+    $monthKey = $monthCursor->format('Y-m');
+    $monthLabels[] = $monthCursor->format('M Y');
+    $monthNewRes[] = (int)($trendResidents[$monthKey] ?? 0);
+    $monthCerts[] = (int)($trendCertificates[$monthKey] ?? 0);
+    $monthBlotter[] = (int)($trendBlotter[$monthKey] ?? 0);
+    $monthCursor = $monthCursor->modify('+1 month');
 }
 
 // ── Gender ─────────────────────────────────────────────────
@@ -176,7 +243,7 @@ $pageSubtitle = 'Demographic charts and population insights.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .topbar{height:80px !important;}
         .main-content{margin-top:80px !important;padding:12px 20px 20px 22px;}
@@ -245,7 +312,7 @@ $pageSubtitle = 'Demographic charts and population insights.';
         debugRows($debugData['officials_pos'], 'Officials by Position');
         debugRows($debugData['requests'], 'Requests by Type');
         ?>
-        <div style="margin-top:10px;color:#38bdf8;font-weight:bold;">Monthly Trend (last 12 months)</div>
+        <div style="margin-top:10px;color:#38bdf8;font-weight:bold;">Monthly Trend (selected period)</div>
         <?php
         foreach ($debugData['trend_labels'] as $i => $lbl) {
             $r = $debugData['trend_residents'][$i];
@@ -258,22 +325,41 @@ $pageSubtitle = 'Demographic charts and population insights.';
     </div>
 <?php endif; ?>
 
-    <!-- ── Filters ──── -->
+    <!-- ── Date Range Filter ──── -->
     <div class="card mb-4" style="border-radius:12px;border:1.5px solid #d0e8f4;">
         <div class="card-body py-2">
-            <form method="GET" class="d-flex flex-wrap align-items-center gap-2">
-                <label class="small fw-semibold text-muted mb-0">Date Range:</label>
-                <input type="date" name="from" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($from) ?>">
-                <span class="small text-muted">to</span>
-                <input type="date" name="to"   class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($to) ?>">
+            <form method="GET" id="analyticsDateFilter" class="d-flex flex-wrap align-items-center gap-2">
+                <label for="analyticsPeriod" class="small fw-semibold text-muted mb-0">Date Range:</label>
+                <select name="period" id="analyticsPeriod" class="form-select form-select-sm" style="width:180px;">
+                    <?php foreach ($periodLabels as $key => $label): ?>
+                    <option value="<?= htmlspecialchars($key) ?>" <?= $period === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div id="customDateFields" class="d-<?= $period === 'custom' ? 'flex' : 'none' ?> align-items-center gap-2">
+                    <input type="date" name="from" aria-label="Start date" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($from) ?>" max="<?= htmlspecialchars($todayString) ?>">
+                    <span class="small text-muted">to</span>
+                    <input type="date" name="to" aria-label="End date" class="form-control form-control-sm" style="width:150px;" value="<?= htmlspecialchars($to) ?>" max="<?= htmlspecialchars($todayString) ?>">
+                </div>
                 <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel-fill me-1"></i>Apply</button>
-                <a href="?" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                <a href="?period=current_month" class="btn btn-sm btn-outline-secondary" aria-label="Reset date filter"><i class="bi bi-arrow-counterclockwise"></i></a>
                 <span class="ms-auto badge" style="background:#dbeafe;color:#1a4f7a;font-size:.75rem;padding:6px 12px;border-radius:20px;">
                     <i class="bi bi-geo-alt-fill me-1"></i><?= $brgyName ?>
                 </span>
+                <div class="w-100 d-flex flex-wrap align-items-center gap-1 mt-1 analytics-period-note">
+                    <span><strong>Selected period:</strong> <?= htmlspecialchars($selectedPeriodLabel) ?>.</span>
+                    <button type="button" class="btn btn-link btn-sm" aria-label="Explain date ranges"
+                            data-bs-toggle="popover" data-bs-trigger="focus" data-bs-placement="bottom" data-bs-html="true"
+                            data-bs-content="<?= htmlspecialchars('<strong>Paano gumagana ang date range?</strong><br>Current Month: mula unang araw ng buwang ito hanggang ngayon.<br>Last 3, 6, o 12 Months: mula unang araw ng pinakamaagang buwan sa napiling saklaw hanggang ngayon.<br>Custom Range: kasama ang parehong petsang pinili.<br><br>Ang napiling panahon ang ginagamit sa New Residents, Certificates Issued, Blotter Cases, at Trends. Ang ibang demographic at current total charts ay kasalukuyang snapshot ng barangay mo.', ENT_QUOTES, 'UTF-8') ?>">
+                        <i class="bi bi-exclamation-circle-fill text-warning"></i>
+                        Paano gumagana ang date range?
+                    </button>
+                </div>
             </form>
         </div>
     </div>
+    <?php if ($filterError): ?>
+    <div class="alert alert-warning py-2 small" role="alert"><i class="bi bi-exclamation-triangle-fill me-1"></i><?= htmlspecialchars($filterError) ?></div>
+    <?php endif; ?>
 
     <!-- ── KPI Cards ──── -->
     <div class="sec-title"><i class="bi bi-grid-1x2-fill text-primary"></i>Key Metrics</div>
@@ -301,7 +387,7 @@ $pageSubtitle = 'Demographic charts and population insights.';
     </div>
 
     <!-- ── Trend Charts ──── -->
-    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (12 Months ending <?= date('M Y', $anchorTs) ?>)</div>
+    <div class="sec-title"><i class="bi bi-graph-up text-success"></i>Trends (<?= htmlspecialchars($selectedPeriodLabel) ?>)</div>
     <div class="row g-3 mb-4">
         <div class="col-12">
             <div class="chart-card">
@@ -405,6 +491,16 @@ $pageSubtitle = 'Demographic charts and population insights.';
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
 
 document.addEventListener('DOMContentLoaded', function () {
+
+const periodSelect = document.getElementById('analyticsPeriod');
+const customDateFields = document.getElementById('customDateFields');
+periodSelect.addEventListener('change', function () {
+    customDateFields.classList.toggle('d-flex', this.value === 'custom');
+    customDateFields.classList.toggle('d-none', this.value !== 'custom');
+});
+document.querySelectorAll('[data-bs-toggle="popover"]').forEach(function (element) {
+    new bootstrap.Popover(element);
+});
 
 const palette = ['#1a4f7a','#2176ae','#3a9fd8','#43a047','#e53935','#fb8c00','#8e24aa','#00897b'];
 const tt = { ticks:{font:{size:10}}, grid:{color:'rgba(0,0,0,0.06)'} };

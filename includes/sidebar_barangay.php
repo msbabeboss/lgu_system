@@ -35,11 +35,6 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
            data-bs-toggle="tooltip" data-bs-placement="right" title="Dashboard">
             <i class="bi bi-speedometer2"></i> <span class="nav-link-text">Dashboard</span>
         </a>
-        <a href="<?= BASE_URL ?>/barangay_admin/forecasting.php"
-           class="nav-link <?= $currentPage === 'forecasting.php' ? 'active' : '' ?>"
-           data-bs-toggle="tooltip" data-bs-placement="right" title="Forecasting">
-            <i class="bi bi-cpu-fill"></i> <span class="nav-link-text">Forecasting</span>
-        </a>
         <a href="<?= BASE_URL ?>/barangay_admin/analytics.php"
            class="nav-link <?= $currentPage === 'analytics.php' ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Analytics">
@@ -137,17 +132,22 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
                 if ($sidebarPhoto) $_SESSION['user_photo'] = $sidebarPhoto;
             } catch (Exception $e) {}
         }
+        $sidebarPhotoPath = $sidebarPhoto ? UPLOAD_PATH . 'profile_photos/' . basename($sidebarPhoto) : '';
+        $sidebarPhotoVersion = $sidebarPhotoPath && is_file($sidebarPhotoPath) ? filemtime($sidebarPhotoPath) : '';
+        if ($sidebarPhoto && !$sidebarPhotoVersion) $sidebarPhoto = null;
         ?>
-        <div class="sidebar-user-avatar" style="overflow:hidden;padding:0;<?= $sidebarPhoto ? 'background:none;' : '' ?>">
+        <div id="sidebarProfileAvatar" class="sidebar-user-avatar" data-fallback="<?= htmlspecialchars(strtoupper(substr($u['name'], 0, 2)), ENT_QUOTES, 'UTF-8') ?>"
+             style="overflow:hidden;padding:0;<?= $sidebarPhoto ? 'background:none;' : '' ?>">
             <?php if ($sidebarPhoto): ?>
-                <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . $sidebarPhoto) ?>"
-                     alt="Profile" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+                <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . rawurlencode($sidebarPhoto) . '?v=' . $sidebarPhotoVersion, ENT_QUOTES, 'UTF-8') ?>"
+                     alt="Profile" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"
+                     onerror="const avatar=this.parentElement;this.remove();avatar.textContent=avatar.dataset.fallback;avatar.style.background='rgba(193,232,255,0.18)';">
             <?php else: ?>
                 <?= strtoupper(substr($u['name'], 0, 2)) ?>
             <?php endif; ?>
         </div>
         <div class="user-info">
-            <div class="user-name"><?= htmlspecialchars($u['name']) ?></div>
+            <div id="sidebarProfileName" class="user-name"><?= htmlspecialchars($u['name']) ?></div>
             <div class="user-role">Barangay Admin</div>
         </div>
         <a href="<?= BASE_URL ?>/logout.php" class="sidebar-logout" title="Logout">

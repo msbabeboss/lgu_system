@@ -8,13 +8,12 @@ $pusherKey     = defined('PUSHER_KEY')     ? PUSHER_KEY     : '';
 $pusherCluster = defined('PUSHER_CLUSTER') ? PUSHER_CLUSTER : 'mt1';
 $pusherEnabled = $pusherKey !== '';
 
-// Idle timeout settings from system_settings (global — super admin controls, applies to all roles)
-$_idleEnabled = '1';
+// Idle timeout settings are scoped by the signed-in user's role.
+$_idleEnabled = '0';
 $_idleMinutes = '5';
-$_idleUnit    = 'minutes'; // 'minutes' or 'seconds'
+$_idleUnit    = 'minutes';
 try {
     $db = Database::getInstance()->getConnection();
-    // Ensure table and defaults exist for both roles
     $db->exec("CREATE TABLE IF NOT EXISTS system_settings (
         id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         setting_key VARCHAR(100) NOT NULL UNIQUE,
@@ -25,13 +24,41 @@ try {
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_enabled','1']);
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_minutes','5']);
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_unit','minutes']);
-    $stmt = $db->query("SELECT setting_key, setting_val FROM system_settings WHERE setting_key IN ('idle_timeout_enabled','idle_timeout_minutes','idle_timeout_unit')");
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        if ($row['setting_key'] === 'idle_timeout_enabled') $_idleEnabled = $row['setting_val'];
-        if ($row['setting_key'] === 'idle_timeout_minutes') $_idleMinutes = $row['setting_val'];
-        if ($row['setting_key'] === 'idle_timeout_unit')    $_idleUnit    = $row['setting_val'];
+    $idleRole = match ($u['role'] ?? '') {
+        'super_admin' => 'super_admin',
+        'barangay_admin' => 'barangay_admin',
+        default => null,
+    };
+    if ($idleRole !== null) {
+        foreach ([
+            'enabled' => 'idle_timeout_enabled',
+            'minutes' => 'idle_timeout_minutes',
+            'unit' => 'idle_timeout_unit',
+        ] as $idlePart => $legacyKey) {
+            $db->prepare(
+                "INSERT IGNORE INTO system_settings (setting_key, setting_val)
+                 SELECT ?, setting_val FROM system_settings WHERE setting_key = ?"
+            )->execute(["idle_{$idleRole}_{$idlePart}", $legacyKey]);
+        }
     }
-} catch (Exception $e) {}
+    $idleKeys = $idleRole === null
+        ? []
+        : ["idle_{$idleRole}_enabled", "idle_{$idleRole}_minutes", "idle_{$idleRole}_unit"];
+    if ($idleKeys) {
+        $placeholders = implode(',', array_fill(0, count($idleKeys), '?'));
+        $stmt = $db->prepare("SELECT setting_key, setting_val FROM system_settings WHERE setting_key IN ($placeholders)");
+        $stmt->execute($idleKeys);
+    } else {
+        $stmt = false;
+    }
+    foreach ($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+        if ($row['setting_key'] === "idle_{$idleRole}_enabled") $_idleEnabled = $row['setting_val'];
+        if ($row['setting_key'] === "idle_{$idleRole}_minutes") $_idleMinutes = $row['setting_val'];
+        if ($row['setting_key'] === "idle_{$idleRole}_unit") $_idleUnit = $row['setting_val'];
+    }
+} catch (Throwable $e) {
+    error_log('[idle timeout settings] Failed to load role-specific timeout: ' . $e->getMessage());
+}
 ?>
 <!-- CSRF meta tag — available to all fetch() calls on authenticated pages -->
 <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES) ?>">
@@ -68,7 +95,7 @@ try {
                     <?= $notifCount > 9 ? '9+' : $notifCount ?>
                 </span>
             </button>
-            <div class="dropdown-menu dropdown-menu-end shadow" style="width:320px; border-radius:12px;">
+            <div class="dropdown-menu dropdown-menu-end shadow" style="width:420px;max-width:calc(100vw - 24px);border-radius:12px;">
                 <div class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center">
                     <strong class="small">Notifications</strong>
                     <a href="#" id="markAllReadBtn" class="small text-primary text-decoration-none<?= $notifCount === 0 ? ' d-none' : '' ?>">Mark all read</a>
@@ -79,7 +106,11 @@ try {
                 <?php else: ?>
                     <?php foreach ($notifications as $n):
                         $isRead   = !empty($n['is_read']);
-                        $safeMsg  = strip_tags($n['message'], '<strong><em><b><i><br>');
+                        $displayMsg = preg_replace('/^[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}\s]+/u', '', strip_tags($n['message'], '<strong><em><b><i><br>')) ?? strip_tags($n['message'], '<strong><em><b><i><br>');
+                        $safeMsg  = $displayMsg;
+                        $actorEmail = trim((string)($n['actor_email'] ?? ''));
+                        $actorName = trim((string)($n['actor_name'] ?? ''));
+                        $actorBarangay = trim((string)($n['actor_barangay'] ?? ''));
                         $category = $n['category'] ?? 'system';
 
                         // Category-first icon mapping — clean monochrome professional icons
@@ -96,26 +127,19 @@ try {
                             },
                         };
 
-                        // Category label pill
-                        $catLabel = match($category) {
-                            'announcement' => ['text' => 'Announcement', 'bg' => '#dbeafe', 'color' => '#1a4f7a'],
-                            'certificate'  => ['text' => 'Certificate',  'bg' => '#dcfce7', 'color' => '#166534'],
-                            'resident'     => ['text' => 'Resident',     'bg' => '#e0f2fe', 'color' => '#0369a1'],
-                            'transaction'  => ['text' => 'Transaction',  'bg' => '#fef9c3', 'color' => '#854d0e'],
-                            default        => ['text' => 'System',       'bg' => '#f1f5f9', 'color' => '#475569'],
-                        };
-
                         $itemClass = $isRead ? 'notif-read' : 'notif-unread';
                     ?>
-                        <div class="dropdown-item notif-item py-2 border-bottom <?= $itemClass ?>" style="white-space:normal;">
+                        <div class="dropdown-item notif-item border-bottom <?= $itemClass ?>" style="white-space:normal;">
                             <div class="d-flex gap-2 align-items-start">
                                 <i class="bi <?= $iconClass ?> mt-1 flex-shrink-0" style="font-size:0.95rem;"></i>
                                 <div class="flex-grow-1">
-                                    <div class="small"><?= $safeMsg ?></div>
-                                    <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-                                        <span style="font-size:0.62rem;background:<?= $catLabel['bg'] ?>;color:<?= $catLabel['color'] ?>;padding:1px 7px;border-radius:20px;font-weight:600;letter-spacing:0.03em;"><?= $catLabel['text'] ?></span>
-                                        <div class="text-muted" style="font-size:0.68rem;"><?= date('M d, Y h:i A', strtotime($n['created_at'])) ?></div>
-                                        <span class="notif-read-badge" style="display:<?= $isRead ? 'inline-block' : 'none' ?>;font-size:0.62rem;background:#e8f5e9;color:#2e7d32;padding:1px 6px;border-radius:20px;font-weight:600;letter-spacing:0.02em;"><i class="bi bi-check2-all me-1"></i>Read</span>
+                                    <div class="notif-sender">
+                                        From: <?= htmlspecialchars($actorName ?: 'Sender unavailable', ENT_QUOTES, 'UTF-8') ?><?= $actorBarangay !== '' ? ' (Brgy. ' . htmlspecialchars($actorBarangay, ENT_QUOTES, 'UTF-8') . ')' : '' ?>
+                                    </div>
+                                    <div class="small notif-message"><?= $safeMsg ?></div>
+                                    <div class="notif-footer text-muted">
+                                        <span class="notif-time"><?= date('M d, Y h:i A', strtotime($n['created_at'])) ?></span>
+                                        <?php if ($actorEmail !== ''): ?><span class="notif-email"><?= htmlspecialchars($actorEmail, ENT_QUOTES, 'UTF-8') ?></span><?php endif; ?>
                                     </div>
                                 </div>
                             </div>
@@ -137,19 +161,20 @@ try {
                 $tbPhotoPath = $tbPhoto ? UPLOAD_PATH . 'profile_photos/' . $tbPhoto : '';
                 $tbPhotoVersion = $tbPhotoPath && is_file($tbPhotoPath) ? filemtime($tbPhotoPath) : '';
                 ?>
-                <?php if ($tbPhoto): ?>
-                    <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . rawurlencode($tbPhoto) . ($tbPhotoVersion ? '?v=' . $tbPhotoVersion : '')) ?>"
-                         alt="Profile"
-                         width="28" height="28"
-                         style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">
-                <?php else: ?>
-                    <i class="bi bi-person-circle fs-5"></i>
-                <?php endif; ?>
-                <span class="d-none d-md-inline small fw-semibold"><?= htmlspecialchars($u['name']) ?></span>
+                <span id="topbarProfileAvatar" class="d-inline-flex align-items-center justify-content-center flex-shrink-0">
+                    <?php if ($tbPhoto && $tbPhotoVersion && is_file($tbPhotoPath)): ?>
+                        <img src="<?= htmlspecialchars(UPLOAD_URL . 'profile_photos/' . rawurlencode($tbPhoto) . '?v=' . $tbPhotoVersion, ENT_QUOTES, 'UTF-8') ?>"
+                             alt="Profile" width="28" height="28"
+                             style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+                    <?php else: ?>
+                        <i class="bi bi-person-circle fs-5"></i>
+                    <?php endif; ?>
+                </span>
+                <span id="topbarProfileName" class="d-none d-md-inline small fw-semibold"><?= htmlspecialchars($u['name']) ?></span>
                 <i class="bi bi-chevron-down small"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow" style="border-radius:10px;">
-                <li><h6 class="dropdown-header"><?= htmlspecialchars($u['name']) ?></h6></li>
+                <li><h6 id="topbarProfileMenuName" class="dropdown-header"><?= htmlspecialchars($u['name']) ?></h6></li>
                 <?php if (($u['role'] ?? '') === 'super_admin'): ?>
                 <li><a class="dropdown-item" href="<?= BASE_URL ?>/super_admin/settings.php?tab=profile"><i class="bi bi-person-circle me-2"></i>My Profile</a></li>
                 <?php endif; ?>
@@ -187,6 +212,63 @@ try {
 </div>
 
 <style>
+/* Keep long notification messages inside the existing bell dropdown layout. */
+#notifDropdown .dropdown-menu,
+#notifDropdown .dropdown-menu :not(i) {
+    font-family: inherit !important;
+}
+
+#notifDropdown .dropdown-menu {
+    width: 420px;
+    max-width: calc(100vw - 24px);
+}
+
+#notifDropdown #notifList {
+    max-height: 420px !important;
+}
+
+#notifDropdown .notif-item .flex-grow-1 {
+    min-width: 0;
+}
+
+#notifDropdown .notif-item .small {
+    line-height: 18px;
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+#notifDropdown .notif-item {
+    box-sizing: border-box;
+    overflow: visible;
+    padding: 14px 18px;
+}
+
+#notifDropdown .notif-sender {
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+}
+
+#notifDropdown .notif-message {
+    line-height: 1.4 !important;
+    overflow-wrap: anywhere;
+}
+
+#notifDropdown .notif-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    margin-top: 8px;
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+#notifDropdown .notif-email {
+    overflow-wrap: anywhere;
+}
+
 /* ── Toast card ── */
 .notif-toast {
     background: #fff;
@@ -568,24 +650,35 @@ document.addEventListener('DOMContentLoaded', function() {
         const category = notif.category || 'system';
         const icon = catIconMap[category] || typeIconMap[notif.type] || typeIconMap.info;
 
-        // Category label config
-        const catLabels = {
-            announcement : { text: 'Announcement', bg: '#dbeafe', color: '#1a4f7a' },
-            certificate  : { text: 'Certificate',  bg: '#dcfce7', color: '#166534' },
-            resident     : { text: 'Resident',     bg: '#e0f2fe', color: '#0369a1' },
-            transaction  : { text: 'Transaction',  bg: '#fef9c3', color: '#854d0e' },
-            system       : { text: 'System',       bg: '#f1f5f9', color: '#475569' },
-        };
-        const lbl = catLabels[category] || catLabels.system;
-
         // Sanitise message — allow safe inline tags (<strong>,<em>,<b>,<i>,<br>)
-        const safeMsg = (notif.message || '')
+        const plainMsg = (notif.message || '').replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\s]+/u, '');
+        const safeMsg = plainMsg
             .replace(/&/g, '&amp;')
             .replace(/</g, '\x00LT\x00')
             .replace(/>/g, '\x00GT\x00')
             .replace(/\x00LT\x00(\/?(strong|em|b|i|br))\x00GT\x00/gi, '<$1>')
             .replace(/\x00LT\x00/g, '&lt;')
             .replace(/\x00GT\x00/g, '&gt;');
+        const safeActorName = (notif.actor_name || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const safeActorEmail = (notif.actor_email || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const safeActorBarangay = (notif.actor_barangay || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const senderLabel = safeActorName || 'Sender unavailable';
+        const senderBarangay = safeActorBarangay ? ` (Brgy. ${safeActorBarangay})` : '';
 
         // Format date
         const d   = new Date(notif.created_at.replace(' ', 'T'));
@@ -595,17 +688,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                     hour:'2-digit', minute:'2-digit', hour12:true
                                 });
         const div = document.createElement('div');
-        div.className = 'dropdown-item notif-item py-2 border-bottom notif-unread';
+        div.className = 'dropdown-item notif-item border-bottom notif-unread';
         div.style.whiteSpace = 'normal';
         div.innerHTML = `
             <div class="d-flex gap-2 align-items-start">
                 <i class="bi ${icon} mt-1 flex-shrink-0" style="font-size:0.95rem;"></i>
                 <div class="flex-grow-1">
-                    <div class="small">${safeMsg}</div>
-                    <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-                        <span style="font-size:0.62rem;background:${lbl.bg};color:${lbl.color};padding:1px 7px;border-radius:20px;font-weight:600;letter-spacing:0.03em;">${lbl.text}</span>
-                        <div class="text-muted" style="font-size:0.68rem;">${fmt}</div>
-                        <span class="notif-read-badge" style="display:none;font-size:0.62rem;background:#e8f5e9;color:#2e7d32;padding:1px 6px;border-radius:20px;font-weight:600;letter-spacing:0.02em;"><i class="bi bi-check2-all me-1"></i>Read</span>
+                    <div class="notif-sender">From: ${senderLabel}${senderBarangay}</div>
+                    <div class="small notif-message">${safeMsg}</div>
+                    <div class="notif-footer text-muted">
+                        <span class="notif-time">${fmt}</span>
+                        ${safeActorEmail ? `<span class="notif-email">${safeActorEmail}</span>` : ''}
                     </div>
                 </div>
             </div>`;
@@ -692,8 +785,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         list.querySelectorAll('.notif-item.notif-unread').forEach(function (item) {
                             item.classList.remove('notif-unread');
                             item.classList.add('notif-read');
-                            const badge = item.querySelector('.notif-read-badge');
-                            if (badge) badge.style.display = 'inline-block';
                         });
                     }
                     unreadCount = 0;
@@ -895,11 +986,10 @@ $_logoutUrl   = BASE_URL . '/logout.php';
         <p style="font-size:0.8rem;color:#94a3b8;margin-bottom:24px;">
             Logging out automatically in <strong id="idleCountdown">10</strong>s…
         </p>
-        <!-- Primary: go to login page -->
-        <a href="<?= htmlspecialchars($_loginUrl) ?>" id="idleLoginBtn"
-           style="display:inline-block;background:linear-gradient(90deg,#1a4f7a,#3a7fa8);color:#fff;border-radius:10px;padding:10px 32px;font-weight:600;text-decoration:none;font-size:0.9rem;margin-bottom:10px;">
+        <button type="button" id="idleLoginBtn"
+                style="background:linear-gradient(90deg,#1a4f7a,#3a7fa8);color:#fff;border:0;border-radius:10px;padding:10px 32px;font-weight:600;font-size:0.9rem;cursor:pointer;">
             <i class="bi bi-box-arrow-in-right me-2"></i>Log In Now
-        </a>
+        </button>
     </div>
 </div>
 
@@ -909,18 +999,69 @@ $_logoutUrl   = BASE_URL . '/logout.php';
     const WARN_SEC   = 10;   // countdown seconds before auto-logout
     const LOGIN_URL  = '<?= addslashes($_loginUrl) ?>';
     const LOGOUT_URL = '<?= addslashes($_logoutUrl) ?>';
+    const ACTIVITY_KEY = 'lgu:last-activity:<?= (int)$u['id'] ?>';
 
     let idleTimer, countdownTimer, countdownSec;
+    let sessionTimedOut = false;
+    let logoutInProgress = false;
+    let lastActivityWrite = 0;
+    let lastActivityAt = Date.now();
+    const boundDocuments = new WeakSet();
     const overlay = document.getElementById('idleOverlay');
     const cdEl    = document.getElementById('idleCountdown');
-    const EVENTS  = ['mousemove','mousedown','keydown','touchstart','scroll','click'];
+    const EVENTS  = ['mousemove','pointerdown','keydown','touchstart','scroll','click','input','wheel'];
+
+    function latestActivity() {
+        try {
+            return Number(localStorage.getItem(ACTIVITY_KEY)) || 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function recordActivity() {
+        const now = Date.now();
+        if (now - lastActivityWrite < 1000) return;
+        lastActivityWrite = now;
+        try {
+            localStorage.setItem(ACTIVITY_KEY, String(now));
+        } catch (e) {
+            // The local idle timer still works when browser storage is unavailable.
+        }
+    }
+
+    function bindActivityEvents(target) {
+        if (!target || boundDocuments.has(target)) return;
+        boundDocuments.add(target);
+        EVENTS.forEach(function (ev) {
+            target.addEventListener(ev, resetIdle, { passive: true, capture: true });
+        });
+    }
+
+    function bindFrameActivity(frame) {
+        try {
+            if (frame.contentDocument) bindActivityEvents(frame.contentDocument);
+        } catch (e) {
+            // Cross-origin frames cannot be monitored by this page.
+        }
+    }
+
+    function logoutAndRedirect() {
+        if (logoutInProgress) return;
+        logoutInProgress = true;
+        clearInterval(countdownTimer);
+        const loginButton = document.getElementById('idleLoginBtn');
+        if (loginButton) loginButton.disabled = true;
+        fetch(LOGOUT_URL, { method: 'POST', credentials: 'same-origin' })
+            .catch(function () {})
+            .finally(function () {
+                window.location.replace(LOGIN_URL);
+            });
+    }
 
     function showLockScreen() {
-        // Stop activity listeners so user can't accidentally dismiss overlay
-        EVENTS.forEach(function (ev) {
-            document.removeEventListener(ev, resetIdle);
-        });
-
+        if (sessionTimedOut) return;
+        sessionTimedOut = true;
         overlay.style.display = 'flex';
         countdownSec = WARN_SEC;
         if (cdEl) cdEl.textContent = countdownSec;
@@ -930,32 +1071,67 @@ $_logoutUrl   = BASE_URL . '/logout.php';
             if (cdEl) cdEl.textContent = countdownSec;
             if (countdownSec <= 0) {
                 clearInterval(countdownTimer);
-                // Auto-logout: invalidate server session then redirect to login
-                fetch(LOGOUT_URL, { method: 'POST', credentials: 'same-origin' })
-                    .catch(function () {})
-                    .finally(function () {
-                        window.location.href = LOGIN_URL;
-                    });
+                logoutAndRedirect();
             }
         }, 1000);
     }
 
-    function resetIdle() {
+    function scheduleIdleTimer(delay) {
         clearTimeout(idleTimer);
-        if (overlay.style.display === 'flex') return; // already showing — don't reset
-        idleTimer = setTimeout(showLockScreen, IDLE_MS);
+        idleTimer = setTimeout(showLockScreen, Math.max(1, delay));
     }
 
-    // Attach activity listeners
-    EVENTS.forEach(function (ev) {
-        document.addEventListener(ev, resetIdle, { passive: true });
+    function resetIdle() {
+        if (sessionTimedOut) return;
+        lastActivityAt = Date.now();
+        recordActivity();
+        scheduleIdleTimer(IDLE_MS);
+    }
+
+    function syncIdleTimer() {
+        if (sessionTimedOut) return;
+        const sharedActivity = latestActivity();
+        if (sharedActivity > lastActivityAt) lastActivityAt = sharedActivity;
+        const remaining = IDLE_MS - (Date.now() - lastActivityAt);
+        if (remaining <= 0) {
+            clearTimeout(idleTimer);
+            showLockScreen();
+            return;
+        }
+        scheduleIdleTimer(remaining);
+    }
+
+    function checkSharedActivity(event) {
+        if (sessionTimedOut || event.key !== ACTIVITY_KEY) return;
+        const lastActivity = Number(event.newValue) || 0;
+        if (lastActivity > lastActivityAt) {
+            lastActivityAt = lastActivity;
+            syncIdleTimer();
+        }
+    }
+
+    bindActivityEvents(document);
+    document.getElementById('idleLoginBtn').addEventListener('click', logoutAndRedirect);
+    document.querySelectorAll('iframe').forEach(function (frame) {
+        bindFrameActivity(frame);
+        frame.addEventListener('load', function () {
+            bindFrameActivity(frame);
+        });
+    });
+    window.addEventListener('storage', checkSharedActivity);
+    window.addEventListener('focus', syncIdleTimer);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) syncIdleTimer();
     });
 
     // Start on page load — wait for DOMContentLoaded so the full page-load time
     // doesn't consume the idle window. A slow server response should not count
     // as user idle time; the clock starts once the page is actually interactive.
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', resetIdle);
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('iframe').forEach(bindFrameActivity);
+            resetIdle();
+        }, { once: true });
     } else {
         resetIdle(); // already loaded (e.g. script runs after DOMContentLoaded)
     }

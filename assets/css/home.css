@@ -562,6 +562,18 @@ html, body {
     display: block;
     position: relative;
 }
+.password-wrapper.no-password-toggle input::-ms-reveal,
+.password-wrapper.no-password-toggle input::-ms-clear,
+.password-wrapper.no-password-toggle input::-webkit-contacts-auto-fill-button,
+.password-wrapper.no-password-toggle input::-webkit-credentials-auto-fill-button {
+    display: none !important;
+    visibility: hidden;
+    pointer-events: none;
+}
+.password-wrapper.no-password-toggle input[type="password"]::-webkit-textfield-decoration-container {
+    display: none;
+}
+.password-wrapper.no-password-toggle input { padding-right: 13px !important; }
 .toggle-pw {
     position: absolute !important;
     right: 12px;

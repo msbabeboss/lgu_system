@@ -7,8 +7,28 @@ $u  = currentUser();
 
 // ── Safe migration ─────────────────────────────────────────────────────────
 try {
-    $db->exec("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'system' AFTER type");
-} catch (Throwable $e) {}
+    $categoryColumn = $db->prepare(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'notifications'
+           AND COLUMN_NAME = 'category'"
+    );
+    $categoryColumn->execute();
+    if ((int)$categoryColumn->fetchColumn() === 0) {
+        $db->exec("ALTER TABLE notifications ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT 'system' AFTER type");
+    }
+    $db->exec("UPDATE notifications SET category = 'system' WHERE category = '' OR category IS NULL");
+} catch (Throwable $e) {
+    error_log('[Super Admin notifications] Unable to ensure category column: ' . $e->getMessage());
+    http_response_code(500);
+    if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'Unable to load notifications. Please contact the system administrator.']);
+    } else {
+        echo 'Unable to load notifications. Please contact the system administrator.';
+    }
+    exit;
+}
 
 // ── Shared helper: build WHERE clauses from filter params ─────────────────
 function buildNotifWhere(array $base, string $cat, string $read): array {
@@ -37,7 +57,7 @@ function buildNotifWhere(array $base, string $cat, string $read): array {
 if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
 
-    $allowedCats  = ['all','resident','certificate','transaction','request','blotter','announcement','system'];
+    $allowedCats  = ['all','transaction','request','system'];
     $allowedReads = ['all','unread','read'];
     $filterCat  = in_array($_GET['cat']  ?? 'all', $allowedCats)  ? $_GET['cat']  : 'all';
     $filterRead = in_array($_GET['read'] ?? 'all', $allowedReads) ? $_GET['read'] : 'all';
@@ -66,9 +86,7 @@ if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmt->execute($w['params']);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $userEmail = $u['email'] ?? '';
-
-    $items = array_map(function($n) use ($userEmail) {
+    $items = array_map(function($n) {
         $cat  = $n['category'] ?? 'system';
         $type = $n['type']     ?? 'info';
         $iconMap = [
@@ -85,7 +103,9 @@ if (!empty($_GET['ajax']) && $_GET['ajax'] === '1') {
         return [
             'icon'   => $iconMap[$cat] ?? ($typeMap[$type] ?? 'bi-bell-fill text-secondary'),
             'msg'    => strip_tags($n['message'], '<strong><b><em><i><br>'),
-            'email'  => htmlspecialchars($userEmail),
+            'sender' => (string)($n['actor_name'] ?? ''),
+            'barangay' => (string)($n['actor_barangay'] ?? ''),
+            'email'  => (string)($n['actor_email'] ?? ''),
             'time'   => date('M d, Y h:i A', strtotime($n['created_at'])),
             'unread' => !(bool)$n['is_read'],
         ];
@@ -122,21 +142,22 @@ $pageSubtitle = '';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .notif-row {
-            display: flex; align-items: flex-start; gap: 10px;
-            padding: 10px 14px; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: flex-start; gap: 14px;
+            padding: 16px 20px; border-bottom: 1px solid #f0f0f0;
             background: #fff; transition: background 0.15s;
         }
         .notif-row:last-child { border-bottom: none; }
         .notif-row:hover      { background: #fafbff; }
         .notif-row.unread     { border-left: 3px solid #3b82f6; background: #f8faff; }
         .notif-row.unread:hover { background: #f0f5ff; }
-        .notif-icon { font-size: 1rem; margin-top: 2px; flex-shrink: 0; }
-        .notif-msg  { font-size: 0.8rem; line-height: 1.45; color: #1e293b; margin-bottom: 2px; }
-        .notif-meta { font-size: 0.68rem; color: #94a3b8; }
-        .notif-meta .sep { margin: 0 4px; }
+        .notif-icon { font-size: 1rem; margin-top: 3px; flex-shrink: 0; }
+        .notif-content { min-width: 0; flex: 1; }
+        .notif-sender { font-size: 0.76rem; font-weight: 600; color: #475569; margin-bottom: 4px; overflow-wrap: anywhere; }
+        .notif-msg  { font-size: 0.85rem; line-height: 1.5; color: #1e293b; margin-bottom: 8px; overflow-wrap: anywhere; }
+        .notif-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 0.72rem; color: #64748b; overflow-wrap: anywhere; }
 
         #notif-list-wrap { margin-top: 14px; transition: opacity 0.18s ease; }
         #notif-list-wrap.loading { opacity: 0.35; pointer-events: none; }
@@ -194,11 +215,7 @@ $pageSubtitle = '';
             <!-- Category dropdown -->
             <select id="cat-select" title="Filter by category">
                 <option value="all">📋 All Categories</option>
-                <option value="resident">👤 Residents</option>
-                <option value="certificate">📜 Certificates</option>
                 <option value="request">📨 Requests</option>
-                <option value="blotter">🚨 Blotter Cases</option>
-                <option value="announcement">📢 Announcements</option>
                 <option value="system">⚙️ System</option>
             </select>
 
@@ -233,7 +250,7 @@ $pageSubtitle = '';
     </div>
 
     <!-- Pagination -->
-    <div id="notif-pagination" class="mt-3 d-flex justify-content-center"></div>
+    <div id="notif-pagination" class="table-pagination mt-3 d-flex justify-content-center"></div>
 
 </div>
 
@@ -260,7 +277,12 @@ $pageSubtitle = '';
         fetch('?ajax=1&cat=' + encodeURIComponent(state.cat)
             + '&read=' + encodeURIComponent(state.read)
             + '&page=' + state.page, { credentials: 'same-origin' })
-        .then(function(r){ return r.json(); })
+        .then(function(r){
+            return r.json().then(function(data){
+                if (!r.ok || data.error) throw new Error(data.error || 'Failed to load notifications.');
+                return data;
+            });
+        })
         .then(function(d){
             wrap.classList.remove('loading');
             renderList(d);
@@ -271,9 +293,10 @@ $pageSubtitle = '';
                 + '&read=' + encodeURIComponent(state.read)
                 + '&page=' + state.page);
         })
-        .catch(function(){
+        .catch(function(error){
             wrap.classList.remove('loading');
-            wrap.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle text-danger"></i><p class="fw-semibold mb-1 small">Failed to load.</p></div>';
+            var message = error && error.message ? error.message : 'Failed to load notifications.';
+            wrap.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-circle text-danger"></i><p class="fw-semibold mb-1 small">' + esc(message) + '</p></div>';
         });
     }
 
@@ -285,25 +308,27 @@ $pageSubtitle = '';
             return;
         }
         wrap.innerHTML = d.items.map(function(n){
+            var sender = n.sender || 'Sender unavailable';
+            var senderBarangay = n.barangay ? ' (Brgy. ' + esc(n.barangay) + ')' : '';
+            var email = n.email ? '<span><i class="bi bi-envelope me-1"></i>' + esc(n.email) + '</span>' : '';
             return '<div class="notif-row' + (n.unread ? ' unread' : '') + '">'
                 + '<i class="bi ' + esc(n.icon) + ' notif-icon"></i>'
-                + '<div><div class="notif-msg">' + n.msg + '</div>'
-                + '<div class="notif-meta"><i class="bi bi-envelope me-1"></i>' + n.email
-                + '<span class="sep">·</span><i class="bi bi-clock me-1"></i>' + esc(n.time) + '</div>'
+                + '<div class="notif-content"><div class="notif-sender">From: ' + esc(sender) + senderBarangay + '</div>'
+                + '<div class="notif-msg">' + n.msg + '</div>'
+                + '<div class="notif-meta"><span><i class="bi bi-clock me-1"></i>' + esc(n.time) + '</span>' + email + '</div>'
                 + '</div></div>';
         }).join('');
     }
 
     // ── Render pagination ──────────────────────────────────
     function renderPagination(d) {
-        if (d.totalPages <= 1) { pagWrap.innerHTML = ''; return; }
-        var html = '<ul class="pagination pagination-sm mb-0">';
+        var html = '<nav aria-label="Notification pagination"><ul class="pagination pagination-sm mb-0">';
         html += '<li class="page-item' + (d.page<=1?' disabled':'') + '"><a class="page-link" href="#" data-p="'+(d.page-1)+'">&laquo;</a></li>';
         for (var p = Math.max(1,d.page-2); p <= Math.min(d.totalPages,d.page+2); p++) {
             html += '<li class="page-item'+(p===d.page?' active':'')+'"><a class="page-link" href="#" data-p="'+p+'">'+p+'</a></li>';
         }
         html += '<li class="page-item'+(d.page>=d.totalPages?' disabled':'')+'"><a class="page-link" href="#" data-p="'+(d.page+1)+'">&raquo;</a></li>';
-        html += '</ul>';
+        html += '</ul></nav>';
         pagWrap.innerHTML = html;
         pagWrap.querySelectorAll('a[data-p]').forEach(function(a){
             a.addEventListener('click', function(e){
@@ -337,7 +362,7 @@ $pageSubtitle = '';
 
     // ── Init from URL params ───────────────────────────────
     var p     = new URLSearchParams(window.location.search);
-    var cats  = ['all','resident','certificate','transaction','request','blotter','announcement','system'];
+    var cats  = ['all','transaction','request','system'];
     var reads = ['all','unread','read'];
     state.cat  = cats.includes(p.get('cat'))   ? p.get('cat')  : 'all';
     state.read = reads.includes(p.get('read'))  ? p.get('read') : 'all';

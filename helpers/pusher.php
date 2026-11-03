@@ -39,7 +39,7 @@ function getPusher(): ?\Pusher\Pusher {
  * Broadcast a notification event to a specific user's private channel.
  * Called automatically by sendNotification() in functions.php.
  */
-function pushNotification(int $userId, int $notifId, string $message, string $type, string $createdAt, string $category = 'system'): void {
+function pushNotification(int $userId, int $notifId, string $message, string $type, string $createdAt, string $category = 'system', string $actorEmail = '', string $actorName = '', string $actorBarangay = ''): void {
     $pusher = getPusher();
     if ($pusher === null) return;
 
@@ -52,6 +52,9 @@ function pushNotification(int $userId, int $notifId, string $message, string $ty
                 'message'    => $message,
                 'type'       => $type,
                 'category'   => $category,
+                'actor_email'=> $actorEmail,
+                'actor_name' => $actorName,
+                'actor_barangay' => $actorBarangay,
                 'created_at' => $createdAt,
             ]
         );

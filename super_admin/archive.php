@@ -6,7 +6,7 @@ $db = Database::getInstance()->getConnection();
 $u  = currentUser();
 
 // All types visible to super admin — LGU level only (no barangay-level records)
-$superAdminTypes = ['users', 'barangays', 'notices', 'requests'];
+$superAdminTypes = ['users', 'barangays', 'notices', 'requests', 'manual_reports'];
 $typeList        = implode("','", $superAdminTypes);
 
 // ── POST Actions ───────────────────────────────────────────
@@ -36,6 +36,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->prepare("UPDATE notices SET status='Active' WHERE id=?")->execute([$rid]);
         } elseif ($t === 'requests') {
             $db->prepare("UPDATE user_requests SET status='pending' WHERE id=?")->execute([$rid]);
+        } elseif ($t === 'manual_reports') {
+            $data = json_decode($archive['data_json'], true);
+            if (!is_array($data)) {
+                throw new RuntimeException('Archived manual report data is invalid.');
+            }
+
+            $db->beginTransaction();
+            try {
+                $reportColumns = $db->query("SHOW COLUMNS FROM manual_reports")->fetchAll(PDO::FETCH_COLUMN);
+                $reportData = array_intersect_key($data, array_flip($reportColumns));
+                $columnSql = implode(', ', array_map(static fn($column) => "`$column`", array_keys($reportData)));
+                $valueSql = implode(', ', array_fill(0, count($reportData), '?'));
+                $db->prepare("INSERT INTO manual_reports ($columnSql) VALUES ($valueSql)")
+                   ->execute(array_values($reportData));
+
+                $attachments = $data['_attachments'] ?? [];
+                if ($attachments) {
+                    $attachmentStmt = $db->prepare("
+                        INSERT INTO manual_report_attachments
+                            (id, report_id, barangay_id, uploaded_by, original_name, stored_name, file_path, file_size, mime_type, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    foreach ($attachments as $attachment) {
+                        $attachmentStmt->execute([
+                            $attachment['id'], $attachment['report_id'], $attachment['barangay_id'],
+                            $attachment['uploaded_by'], $attachment['original_name'], $attachment['stored_name'],
+                            $attachment['file_path'], $attachment['file_size'], $attachment['mime_type'],
+                            $attachment['created_at'],
+                        ]);
+                    }
+                }
+                $db->prepare("DELETE FROM archives WHERE id = ?")->execute([$archiveId]);
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
+            }
         }
 
         $db->prepare("DELETE FROM archives WHERE id=?")->execute([$archiveId]);
@@ -95,7 +134,7 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         .archive-pagination {
@@ -184,10 +223,11 @@ function submitRestore() {
             </div>
             <select name="type" class="form-select form-select-sm" style="width:160px;border-color:#e0f0e4;background:#f8fafc;">
                 <option value="">All Categories</option>
-                <option value="users"     <?= $typeFilter==='users'    ?'selected':'' ?>>Users</option>
-                <option value="barangays" <?= $typeFilter==='barangays'?'selected':'' ?>>Barangays</option>
-                <option value="notices"   <?= $typeFilter==='notices'  ?'selected':'' ?>>Notices</option>
-                <option value="requests"  <?= $typeFilter==='requests' ?'selected':'' ?>>Requests</option>
+                        <option value="users"          <?= $typeFilter==='users'          ?'selected':'' ?>>Users</option>
+                        <option value="barangays"      <?= $typeFilter==='barangays'      ?'selected':'' ?>>Barangays</option>
+                        <option value="notices"        <?= $typeFilter==='notices'        ?'selected':'' ?>>Notices</option>
+                        <option value="requests"       <?= $typeFilter==='requests'       ?'selected':'' ?>>Requests</option>
+                        <option value="manual_reports" <?= $typeFilter==='manual_reports' ?'selected':'' ?>>Manual Reports</option>
             </select>
             <button class="btn btn-sm btn-primary px-3" style="border-radius:8px;">
                 <i class="bi bi-funnel me-1"></i>Filter
@@ -231,6 +271,8 @@ function submitRestore() {
                         $restoreLabel = $data['barangay_name'] ?? '—';
                     } elseif ($a['table_name'] === 'notices') {
                         $restoreLabel = $data['title'] ?? '—';
+                    } elseif ($a['table_name'] === 'manual_reports') {
+                        $restoreLabel = $data['report_title'] ?? '—';
                     } else {
                         $restoreLabel = $data['subject'] ?? ($data['title'] ?? 'Record #' . ($data['id'] ?? ''));
                     }
@@ -239,6 +281,7 @@ function submitRestore() {
                         'barangays' => ['bg'=>'rgba(5,150,105,0.1)',   'color'=>'#065f46'],
                         'notices'   => ['bg'=>'rgba(14,165,233,0.1)',  'color'=>'#0369a1'],
                         'requests'  => ['bg'=>'rgba(107,114,128,0.1)', 'color'=>'#374151'],
+                        'manual_reports' => ['bg'=>'rgba(124,58,237,0.1)', 'color'=>'#6d28d9'],
                     ];
                     $tc = $typeColors[$a['table_name']] ?? $typeColors['requests'];
                 ?>
@@ -276,6 +319,16 @@ function submitRestore() {
                                     <div style="font-size:0.72rem;color:#3a7fa8;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"><?= htmlspecialchars(substr($data['content']??'',0,60)) ?></div>
                                 </div>
                             </div>
+                            <?php elseif ($a['table_name'] === 'manual_reports'): ?>
+                            <div class="d-flex align-items-center gap-3">
+                                <div style="width:36px;height:36px;background:linear-gradient(135deg,#6d28d9,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:0.8rem;flex-shrink:0;">
+                                    <i class="bi bi-file-earmark-text-fill"></i>
+                                </div>
+                                <div>
+                                    <div style="font-weight:600;color:#1a2e1f;"><?= htmlspecialchars($data['report_title']??'—') ?></div>
+                                    <div style="font-size:0.72rem;color:#3a7fa8;"><?= htmlspecialchars($data['barangay_name']??'') ?></div>
+                                </div>
+                            </div>
                             <?php else: ?>
                             <div class="d-flex align-items-center gap-3">
                                 <div style="width:36px;height:36px;background:linear-gradient(135deg,#374151,#6b7280);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:0.8rem;flex-shrink:0;">
@@ -292,7 +345,7 @@ function submitRestore() {
                         <!-- Category -->
                         <td class="py-3" style="border:none;">
                             <span style="background:<?= $tc['bg'] ?>;color:<?= $tc['color'] ?>;font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:20px;">
-                                <?= ucfirst($a['table_name']) ?>
+                                <?= $a['table_name'] === 'manual_reports' ? 'Manual Reports' : ucfirst($a['table_name']) ?>
                             </span>
                             <div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">ID #<?= $a['record_id'] ?></div>
                         </td>
@@ -309,6 +362,11 @@ function submitRestore() {
                                 <div style="font-size:0.72rem;color:#94a3b8;"><?= htmlspecialchars($data['province']??'') ?></div>
                             <?php elseif ($a['table_name'] === 'notices'): ?>
                                 <div style="font-size:0.72rem;color:#2a5070;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;"><?= htmlspecialchars(substr($data['content']??'',0,80)) ?></div>
+                            <?php elseif ($a['table_name'] === 'manual_reports'): ?>
+                                <span style="background:rgba(124,58,237,0.1);color:#6d28d9;font-size:0.68rem;font-weight:600;padding:2px 8px;border-radius:20px;">
+                                    <?= htmlspecialchars($data['report_type'] ?? 'Manual Report') ?>
+                                </span>
+                                <div style="font-size:0.72rem;color:#64748b;margin-top:3px;"><?= htmlspecialchars(substr(strip_tags($data['report_body'] ?? ''), 0, 80)) ?></div>
                             <?php else: ?>
                                 <span style="background:rgba(107,114,128,0.1);color:#374151;font-size:0.68rem;font-weight:600;padding:2px 8px;border-radius:20px;">
                                     <?= ucfirst(str_replace('_',' ',$data['request_type']??'Request')) ?>

@@ -155,7 +155,7 @@ $pageSubtitle = 'Officials of ' . htmlspecialchars($brgyRow['barangay_name']);
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>
@@ -230,7 +230,7 @@ $pageSubtitle = 'Officials of ' . htmlspecialchars($brgyRow['barangay_name']);
             <input type="text" name="search" class="form-control form-control-sm" style="width:220px;"
                    placeholder="Search name, position, barangay..." value="<?= htmlspecialchars($search) ?>">
             <button class="btn btn-primary btn-sm px-3"><i class="bi bi-search me-1"></i>Search</button>
-            <a href="?" class="btn btn-outline-secondary btn-sm px-3"><i class="bi bi-x me-1"></i>Clear</a>
+            <a href="?barangay_id=<?= $brgFilter ?>" class="btn btn-outline-secondary btn-sm px-3"><i class="bi bi-x me-1"></i>Clear</a>
             <span class="ms-auto text-muted small"><?= number_format($totalCount) ?> official<?= $totalCount!==1?'s':'' ?></span>
         </form>
     </div>

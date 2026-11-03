@@ -48,6 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $db->prepare("DELETE FROM archives WHERE id=?")->execute([$archiveId]);
             logActivity($u['id'], 'RESTORE_ARCHIVE', 'Archive', "Restored {$archive['table_name']} record for " . ucfirst($archive['table_name']));
+            $restoredNotif = ucfirst(str_replace('_', ' ', $archive['table_name'])) . ' record restored from the barangay archive.';
+            sendNotification($u['id'], $restoredNotif, 'success', 'system');
+            notifyBarangayAdmins($bid, $restoredNotif, 'success', 'system', $u['id']);
             flash('arch', 'Record restored successfully.', 'success');
         }
         redirect(BASE_URL . '/barangay_admin/archive.php');
@@ -149,7 +152,7 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>

@@ -382,28 +382,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // If $hhRole is '' (keep current) or resident is head, do nothing — preserve existing assignment.
 
     // ── Email confirmation to the acting admin ─────────────────────────
-    if (!empty($u['email'])) {
-        $brgyNameRes = $db->query("SELECT barangay_name FROM barangays WHERE id=$bid")->fetchColumn() ?: '';
-        $actionLabel = ($status === 'Deceased')
-                     ? 'DECEASED_RESIDENT'
-                     : (($status === 'Transferred')
-                        ? 'TRANSFER_RESIDENT'
-                        : (($status === 'Pending Transfer') ? 'PENDING_TRANSFER' : 'EDIT_RESIDENT'));
-        $actionDesc  = ($status === 'Deceased')
-                     ? "Marked $fname $lname as deceased"
-                     : (($status === 'Pending Transfer')
-                        ? "Transfer request submitted: $fname $lname → $transferTo"
-                        : (($status === 'Transferred')
-                           ? "Transferred $fname $lname (outside municipality)"
-                           : "Updated resident: $fname $lname"));
-        sendTransactionLogEmail(
-            $u['email'], $u['name'],
-            $actionLabel, 'Residents',
-            $actionDesc . " — Barangay: $brgyNameRes",
-            EMAIL_BASE_URL . '/barangay_admin/residents.php'
-        );
-    }
-
     redirect(BASE_URL . '/barangay_admin/residents.php');
 }
 
@@ -423,7 +401,7 @@ $fullName  = trim($res['last_name'] . ', ' . $res['first_name'] . ($res['middle_
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
     <style>
         /* ── Select2 skin to match Bootstrap ── */
@@ -646,7 +624,7 @@ $fullName  = trim($res['last_name'] . ', ' . $res['first_name'] . ($res['middle_
                                 <label class="field-label">Civil Status <span class="req">*</span></label>
                                 <select name="civil_status" class="form-select" required>
                                     <option value="">Select</option>
-                                    <?php foreach (['Single','Married','Widowed','Separated','Annulled'] as $c): ?>
+                                    <?php foreach (['Single','Married','Widowed','Separated'] as $c): ?>
                                     <option <?= $res['civil_status']===$c ? 'selected':'' ?>><?= $c ?></option>
                                     <?php endforeach; ?>
                                 </select>

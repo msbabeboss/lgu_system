@@ -377,12 +377,14 @@ Displays a comprehensive overview of all barangay data in a single page.
 | Deceased | Archive reason required; auto-creates archive record; logs `DECEASED_RESIDENT` |
 | Inactive | Archive reason required; logs `ARCHIVE_RESIDENT` |
 
+When an incoming transfer's documentation is completed, the resident is added as an `Active` resident in the destination barangay. The origin resident record remains with `Transferred` status, and the completed transfer request remains in the transfer history with its completion date.
+
 #### List View Features
 - Tabs: Active | Transferred (with badge counts)
 - Filters: Tag, Gender, Civil Status, Voter Status
 - Sort: Newest, Oldest, Name A–Z, Name Z–A
 - Contact duplicate check via `ajax/check_contact.php`
-- Email sent on new resident add (`sendResidentAddedEmail()`)
+- Transaction email sent to the acting admin after successful logged writes; read-only views, exports, and authentication events are excluded
 
 ---
 
@@ -1199,7 +1201,7 @@ All emails are HTML-formatted with gradient headers, branded colors, and action 
 | `sendCertificateIssuedEmail()` | Certificate issued confirmation | Certificate saved | Issuing admin |
 | `sendBlotterFiledEmail()` | "New Blotter Case Filed" | New blotter case | All active super admins |
 | `sendNoticeBroadcastEmails()` | "New Notice: {title}" | Notice created | All active barangay admins |
-| `sendResidentAddedEmail()` | "New Resident Added" | Resident added | Adding barangay admin |
+| `sendTransactionLogEmail()` | Activity logged | Successful logged write by an admin | Acting admin |
 | `sendNewRequestEmailToAdmins()` | "New Request Submitted" | Request filed | All active super admins |
 | `sendRequestStatusUpdateEmail()` | "Request Update: {subject}" | Status change | Requesting barangay admin |
 

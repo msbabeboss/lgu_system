@@ -106,19 +106,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newStatus = 'pending_resident_appearance';
         }
 
-        $db->prepare("UPDATE resident_transfer_requests
-            SET doc_personal_appearance=?, doc_credentials=?, doc_info_verified=?,
-                doc_photo_captured=?, doc_barangay_docs=?, status=?,
-                doc_completed_by=IF(?,?,doc_completed_by),
-                doc_completed_at=IF(?,NOW(),doc_completed_at)
-            WHERE id=?")
-           ->execute([
-               $docAppearance, $docCreds, $docInfoVer, $docPhoto, $docBrgyDocs,
-               $newStatus,
-               $allDone, $u['id'],    // doc_completed_by conditional
-               $allDone,              // doc_completed_at conditional
-               $reqId
-           ]);
+        if ($allDone) {
+            if (!$req['resident_id']) {
+                flash('it', 'This transfer has no linked resident record, so it cannot be added to the destination barangay. Link a resident record before completing the transfer.', 'danger');
+                redirect(BASE_URL . '/barangay_admin/incoming_transfers.php');
+            }
+
+            $db->beginTransaction();
+            try {
+                $completeStmt = $db->prepare("UPDATE resident_transfer_requests
+                    SET doc_personal_appearance=?, doc_credentials=?, doc_info_verified=?,
+                        doc_photo_captured=?, doc_barangay_docs=?, status='transfer_completed',
+                        doc_completed_by=?, doc_completed_at=NOW()
+                    WHERE id=? AND destination_barangay_id=?
+                      AND status IN ('pending_resident_appearance','pending_documentation')");
+                $completeStmt->execute([
+                    $docAppearance, $docCreds, $docInfoVer, $docPhoto, $docBrgyDocs,
+                    $u['id'], $reqId, $bid,
+                ]);
+
+                if ($completeStmt->rowCount() !== 1) {
+                    $db->rollBack();
+                    flash('it', 'This transfer was already updated. Refresh the page and check its current status.', 'warning');
+                    redirect(BASE_URL . '/barangay_admin/incoming_transfers.php');
+                }
+
+                if ($req['resident_id']) {
+                    $residentStmt = $db->prepare("SELECT
+                            r.id, r.first_name, r.middle_name, r.last_name, r.suffix,
+                            r.birthdate, r.age, r.gender, r.civil_status, r.contact_number,
+                            r.voter_status, r.is_4ps, r.is_pwd, r.is_senior, r.is_solo_parent,
+                            r.occupation_status, r.photo, r.official_id,
+                            a.region AS address_region, a.province AS address_province,
+                            a.city AS address_city, a.street, a.purok, a.zone, a.zip_code,
+                            origin.barangay_name AS origin_name,
+                            destination.barangay_name AS destination_name,
+                            destination.municipality AS destination_city,
+                            destination.region AS destination_region,
+                            destination.province AS destination_province,
+                            destination.zip_code AS destination_zip
+                        FROM residents r
+                        LEFT JOIN addresses a ON a.id=r.address_id
+                        INNER JOIN barangays origin ON origin.id=?
+                        INNER JOIN barangays destination ON destination.id=?
+                        WHERE r.id=? AND r.barangay_id=? AND r.resident_status='Active'
+                        FOR UPDATE");
+                    $residentStmt->execute([
+                        $req['origin_barangay_id'], $bid, $req['resident_id'], $req['origin_barangay_id'],
+                    ]);
+                    $originResident = $residentStmt->fetch();
+
+                    if (!$originResident) {
+                        $db->rollBack();
+                        flash('it', 'The linked origin resident is no longer active. Refresh the page and review the transfer before completing it.', 'warning');
+                        redirect(BASE_URL . '/barangay_admin/incoming_transfers.php');
+                    }
+
+                    $db->prepare("INSERT INTO addresses
+                        (region, province, city, barangay, street, purok, zone, zip_code)
+                        VALUES (?,?,?,?,?,?,?,?)")
+                       ->execute([
+                           $originResident['destination_region'] ?: $originResident['address_region'],
+                           $originResident['destination_province'] ?: $originResident['address_province'],
+                           $originResident['destination_city'] ?: $originResident['address_city'],
+                           $originResident['destination_name'],
+                           $originResident['street'],
+                           $originResident['purok'],
+                           $originResident['zone'],
+                           $originResident['destination_zip'] ?: $originResident['zip_code'],
+                       ]);
+                    $destinationAddressId = (int)$db->lastInsertId();
+
+                    $db->prepare("INSERT INTO residents
+                        (barangay_id, first_name, middle_name, last_name, suffix,
+                         birthdate, age, gender, civil_status, contact_number,
+                         address_id, voter_status, is_4ps, is_pwd, is_senior, is_solo_parent,
+                         resident_status, occupation_status, transfer_from_barangay, photo)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'Active',?,?,?)")
+                       ->execute([
+                           $bid,
+                           $originResident['first_name'], $originResident['middle_name'],
+                           $originResident['last_name'], $originResident['suffix'],
+                           $originResident['birthdate'], $originResident['age'],
+                           $originResident['gender'], $originResident['civil_status'],
+                           $originResident['contact_number'], $destinationAddressId,
+                           $originResident['voter_status'], $originResident['is_4ps'],
+                           $originResident['is_pwd'], $originResident['is_senior'],
+                           $originResident['is_solo_parent'],
+                           $originResident['occupation_status'] ?: 'Unemployed',
+                           $originResident['origin_name'], $originResident['photo'],
+                       ]);
+                    $destinationResidentId = (int)$db->lastInsertId();
+
+                    $markTransferred = $db->prepare("UPDATE residents
+                        SET resident_status='Transferred',
+                            transfer_to_barangay=?, transfer_reason=?
+                        WHERE id=? AND barangay_id=? AND resident_status='Active'");
+                    $markTransferred->execute([
+                        $originResident['destination_name'], $req['reason'],
+                        $originResident['id'], $req['origin_barangay_id'],
+                    ]);
+                    if ($markTransferred->rowCount() !== 1) {
+                        throw new RuntimeException('The origin resident could not be marked as transferred.');
+                    }
+                }
+
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
+            }
+        } else {
+            $db->prepare("UPDATE resident_transfer_requests
+                SET doc_personal_appearance=?, doc_credentials=?, doc_info_verified=?,
+                    doc_photo_captured=?, doc_barangay_docs=?, status=?,
+                    doc_completed_by=IF(?,?,doc_completed_by),
+                    doc_completed_at=IF(?,NOW(),doc_completed_at)
+                WHERE id=?")
+               ->execute([
+                   $docAppearance, $docCreds, $docInfoVer, $docPhoto, $docBrgyDocs,
+                   $newStatus,
+                   $allDone, $u['id'],
+                   $allDone,
+                   $reqId
+               ]);
+        }
 
         if ($allDone) {
             // Notify origin barangay admin — transfer complete
@@ -134,15 +248,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'success', 'transaction'
             );
 
-            // Update resident record status if linked
+            // Deactivate an official linked to the origin resident, if any.
             if ($req['resident_id']) {
-                $db->prepare("UPDATE residents
-                    SET resident_status='Transferred',
-                        transfer_to_barangay=(SELECT barangay_name FROM barangays WHERE id=?),
-                        transfer_reason=?
-                    WHERE id=? AND barangay_id=?")
-                   ->execute([$bid, $req['reason'], $req['resident_id'], $req['origin_barangay_id']]);
-
                 // ── Auto-inactivate official if this resident is a linked official ──
                 // Match priority: 1) official_id FK  2) name match  3) contact number fallback
                 // Only sets status to inactive — no auto archive. Admin archives manually.
@@ -211,7 +318,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             logActivity($u['id'], 'TRANSFER_COMPLETED', 'Resident Transfer',
-                "Completed all documentation for transfer #{$reqId} — {$req['resident_name']}");
+                "Completed all documentation for transfer #{$reqId} — {$req['resident_name']}"
+                . (isset($destinationResidentId) ? " — destination resident #$destinationResidentId" : ''));
             flash('it', "Transfer for <strong>{$req['resident_name']}</strong> is now <strong>completed</strong>. The origin barangay has been notified.", 'success');
         } else {
             logActivity($u['id'], 'UPDATE_TRANSFER_DOCS', 'Resident Transfer',
@@ -294,7 +402,7 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.2">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .status-badge-orange { background-color:#fd7e14; color:#fff; }
         .doc-item { display:flex; align-items:center; gap:10px; padding:10px 14px;
@@ -396,7 +504,7 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
                         <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Reason</th>
                         <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Documentation</th>
                         <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Status</th>
-                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">LGU Approved</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Transfer Date / LGU Approval</th>
                         <th class="pe-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Actions</th>
                     </tr>
                 </thead>
@@ -452,8 +560,14 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
                         </span>
                     </td>
                     <td class="py-3 small text-nowrap">
-                        <?php if ($tr['lgu_reviewed_at']): ?>
+                        <?php if ($tr['status'] === 'transfer_completed' && $tr['doc_completed_at']): ?>
+                            <?= date('M d, Y', strtotime($tr['doc_completed_at'])) ?>
+                            <div class="text-success" style="font-size:0.7rem;">Transfer completed</div>
+                        <?php elseif ($tr['status'] === 'transfer_completed'): ?>
+                            <span class="text-muted">Date not recorded</span>
+                        <?php elseif ($tr['lgu_reviewed_at']): ?>
                             <?= date('M d, Y', strtotime($tr['lgu_reviewed_at'])) ?>
+                            <div class="text-muted" style="font-size:0.7rem;">LGU approved</div>
                         <?php else: ?>
                             <span class="text-muted">—</span>
                         <?php endif; ?>
@@ -535,6 +649,10 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
                         <div class="col-6">
                             <div class="small text-muted fw-semibold">LGU Approved On</div>
                             <div class="small fw-semibold" id="dm_lgu_date"></div>
+                        </div>
+                        <div class="col-6">
+                            <div class="small text-muted fw-semibold">Transfer Completed On</div>
+                            <div class="small fw-semibold" id="dm_completed_date"></div>
                         </div>
                     </div>
 
@@ -688,6 +806,8 @@ function openDocsModal(r) {
 
     document.getElementById('dm_lgu_date').textContent = r.lgu_reviewed_at
         ? r.lgu_reviewed_at.substring(0, 10) : '—';
+    document.getElementById('dm_completed_date').textContent = r.doc_completed_at
+        ? r.doc_completed_at.substring(0, 10) : '—';
 
     document.getElementById('dm_req_id').value          = r.id;
     document.getElementById('dm_appeared_req_id').value = r.id;

@@ -273,7 +273,14 @@ if ($subAction === 'request_approval') {
             (int) $saId,
             "🔒 <strong>{$lockedName}</strong> (@{$user['username']}) is locked out and is requesting you to unlock their account. <a href=\"{$approveUrl}\" style=\"color:#2563eb;font-weight:600;\">Review &amp; Approve</a>",
             'warning',
-            'system'
+            'system',
+            [
+                'id' => (int)$user['id'],
+                'name' => $lockedName,
+                'email' => $user['email'] ?? '',
+                'role' => 'super_admin',
+                'barangay_id' => $user['barangay_id'] ?? null,
+            ]
         );
     }
 

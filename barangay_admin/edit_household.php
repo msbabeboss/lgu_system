@@ -114,6 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resName = $db->prepare("SELECT CONCAT(first_name,' ',last_name) FROM residents WHERE id=?")->execute([$residentId])
             ? $db->query("SELECT CONCAT(first_name,' ',last_name) FROM residents WHERE id=$residentId")->fetchColumn() : 'Resident';
         logActivity($u['id'], 'ADD_HH_MEMBER', 'Households', "Added $resName to household {$hh['household_code']} as $relationship");
+        $memberNotif = "$resName added to household {$hh['household_code']}.";
+        sendNotification($u['id'], $memberNotif, 'success', 'system');
+        notifyBarangayAdmins($bid, $memberNotif, 'success', 'system', $u['id']);
         flash('hh', "<strong>$resName</strong> added to household as <strong>$relationship</strong>.", 'success');
         redirect(BASE_URL . '/barangay_admin/edit_household.php?id=' . $hhId);
     }
@@ -148,6 +151,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($rr && $rr['is_pwd'])    $db->prepare("UPDATE households SET total_pwd    = GREATEST(total_pwd    - 1, 0) WHERE id=?")->execute([$hhId]);
         $resName = $db->query("SELECT CONCAT(first_name,' ',last_name) FROM residents WHERE id=$resId")->fetchColumn() ?: 'Resident';
         logActivity($u['id'], 'REMOVE_HH_MEMBER', 'Households', "Removed $resName from household {$hh['household_code']}");
+        $memberNotif = "$resName removed from household {$hh['household_code']}.";
+        sendNotification($u['id'], $memberNotif, 'info', 'system');
+        notifyBarangayAdmins($bid, $memberNotif, 'info', 'system', $u['id']);
         flash('hh', "<strong>$resName</strong> removed from household.", 'info');
         redirect(BASE_URL . '/barangay_admin/edit_household.php?id=' . $hhId);
     }
@@ -198,18 +204,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $headName->execute([$headId]);
     $headName = $headName->fetchColumn() ?: 'unknown head';
     logActivity($u['id'], 'EDIT_HOUSEHOLD', 'Households', "Updated household of $headName (code: {$hh['household_code']})");
+    $householdNotif = "Household {$hh['household_code']} information updated.";
+    sendNotification($u['id'], $householdNotif, 'info', 'system');
+    notifyBarangayAdmins($bid, $householdNotif, 'info', 'system', $u['id']);
     flash('hh', 'Household updated successfully.', 'success');
-
-    // ── Email confirmation to the admin who edited the household ─────────
-    if ($u['email']) {
-        $brgyNameHH = $db->query("SELECT barangay_name FROM barangays WHERE id=$bid")->fetchColumn() ?: '';
-        sendTransactionLogEmail(
-            $u['email'], $u['name'],
-            'EDIT_HOUSEHOLD', 'Households',
-            "Updated household {$hh['household_code']} (Head: $headName) — Barangay: $brgyNameHH",
-            EMAIL_BASE_URL . '/barangay_admin/households.php'
-        );
-    }
 
     redirect(BASE_URL . '/barangay_admin/households.php');
 }
@@ -256,7 +254,7 @@ $pageSubtitle = 'Update household information.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.0">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
     <style>
         .field-label {
             font-size: 0.78rem;

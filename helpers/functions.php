@@ -105,11 +105,64 @@ function getFlash(string $key): ?array {
     return null;
 }
 
-function logActivity(int $userId, string $action, string $module, string $description = ''): void {
+function queueTransactionLogEmail(string $email, string $name, string $action, string $module, string $description, string $activityLogUrl): void {
+    static $queuedEmails = [];
+    static $shutdownRegistered = false;
+
+    $queuedEmails[] = [$email, $name, $action, $module, $description, $activityLogUrl];
+    if ($shutdownRegistered) {
+        return;
+    }
+
+    $shutdownRegistered = true;
+    register_shutdown_function(static function () use (&$queuedEmails): void {
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            while (ob_get_level() > 0) {
+                if (!ob_end_flush()) {
+                    break;
+                }
+            }
+            flush();
+        }
+
+        require_once BASE_PATH . '/helpers/mailer.php';
+        foreach ($queuedEmails as [$email, $name, $action, $module, $description, $activityLogUrl]) {
+            sendTransactionLogEmail($email, $name, $action, $module, $description, $activityLogUrl);
+        }
+    });
+}
+
+function logActivity(int $userId, string $action, string $module, string $description = '', bool $sendTransactionEmail = true): void {
     $db = Database::getInstance()->getConnection();
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     $stmt = $db->prepare("INSERT INTO activity_logs (user_id, action, module, description, ip_address) VALUES (?,?,?,?,?)");
     $stmt->execute([$userId, $action, $module, $description, $ip]);
+
+    $actor = currentUser();
+    if (
+        !$sendTransactionEmail
+        ||
+        (int)$actor['id'] !== $userId
+        || !in_array($actor['role'], ['barangay_admin', 'super_admin'], true)
+        || str_starts_with($action, 'VIEW_')
+        || str_starts_with($action, 'EXPORT')
+        || in_array($action, ['LOGIN', 'LOGOUT', 'PASSWORD_RESET_REQUEST', 'LOGIN_FAILED', '2FA_FAILED', 'ACCOUNT_LOCKED', 'ISSUE_CERTIFICATE'], true)
+    ) {
+        return;
+    }
+
+    $email = trim((string)($actor['email'] ?? ''));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return;
+    }
+
+    require_once BASE_PATH . '/helpers/mailer.php';
+    $activityLogUrl = EMAIL_BASE_URL . ($actor['role'] === 'super_admin'
+        ? '/super_admin/activity_log.php'
+        : '/barangay_admin/activity_log.php');
+    queueTransactionLogEmail($email, $actor['name'], $action, $module, $description, $activityLogUrl);
 }
 
 /**
@@ -125,7 +178,7 @@ function logActivity(int $userId, string $action, string $module, string $descri
  *                         'announcement' — LGU announcement / advisory broadcast
  *                         'transaction'  — requests, reports, blotter
  */
-function sendNotification(int $userId, string $message, string $type = 'info', string $category = 'system'): void {
+function sendNotification(int $userId, string $message, string $type = 'info', string $category = 'system', ?array $actorOverride = null): void {
     $db = Database::getInstance()->getConnection();
 
     // ── Ensure category column exists ────────────────────────────────────────
@@ -156,9 +209,132 @@ function sendNotification(int $userId, string $message, string $type = 'info', s
         }
     }
 
+    static $actorColumnsChecked = false;
+    if (!$actorColumnsChecked) {
+        $actorColumnsChecked = true;
+        try {
+            $chk = $db->prepare(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = 'notifications'
+                   AND COLUMN_NAME IN ('actor_email', 'actor_name')"
+            );
+            $chk->execute();
+            $existingActorColumns = (int)$chk->fetchColumn();
+            if ($existingActorColumns < 2) {
+                $emailColumn = $db->query(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE()
+                       AND TABLE_NAME = 'notifications'
+                       AND COLUMN_NAME = 'actor_email'"
+                );
+                if ((int)$emailColumn->fetchColumn() === 0) {
+                    $db->exec("ALTER TABLE notifications ADD COLUMN actor_email VARCHAR(254) NULL");
+                }
+                $nameColumn = $db->query(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS
+                     WHERE TABLE_SCHEMA = DATABASE()
+                       AND TABLE_NAME = 'notifications'
+                       AND COLUMN_NAME = 'actor_name'"
+                );
+                if ((int)$nameColumn->fetchColumn() === 0) {
+                    $db->exec("ALTER TABLE notifications ADD COLUMN actor_name VARCHAR(200) NULL");
+                }
+            }
+            $barangayColumn = $db->prepare(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = 'notifications'
+                   AND COLUMN_NAME = 'actor_barangay'"
+            );
+            $barangayColumn->execute();
+            if ((int)$barangayColumn->fetchColumn() === 0) {
+                $db->exec("ALTER TABLE notifications ADD COLUMN actor_barangay VARCHAR(200) NULL");
+            }
+        } catch (\Throwable $e) {
+            error_log('[sendNotification] actor metadata column check/add failed: ' . $e->getMessage());
+        }
+    }
+
     $validCategories = ['system', 'resident', 'certificate', 'announcement', 'transaction'];
     if (!in_array($category, $validCategories, true)) {
         $category = 'system';
+    }
+
+    $actor = $actorOverride ?? (function_exists('currentUser') ? currentUser() : []);
+    $actorId = (int)($actor['id'] ?? 0);
+    $actorRole = (string)($actor['role'] ?? '');
+    $actorBarangayId = (int)($actor['barangay_id'] ?? 0);
+    $actorEmail = trim((string)($actor['email'] ?? ''));
+    $actorName = trim((string)($actor['name'] ?? ''));
+    $actorBarangay = trim((string)($actor['barangay_name'] ?? ''));
+
+    if ($actorId > 0) {
+        try {
+            $actorStmt = $db->prepare(
+                "SELECT u.first_name, u.last_name, u.email, u.role, u.barangay_id, b.barangay_name
+                 FROM users u
+                 LEFT JOIN barangays b ON b.id = u.barangay_id
+                 WHERE u.id = ?"
+            );
+            $actorStmt->execute([$actorId]);
+            $actorRow = $actorStmt->fetch(PDO::FETCH_ASSOC);
+            if ($actorRow) {
+                $actorName = trim($actorRow['first_name'] . ' ' . $actorRow['last_name']) ?: $actorName;
+                $actorEmail = trim((string)$actorRow['email']) ?: $actorEmail;
+                $actorRole = (string)$actorRow['role'];
+                $actorBarangayId = (int)($actorRow['barangay_id'] ?? 0);
+                $actorBarangay = trim((string)($actorRow['barangay_name'] ?? '')) ?: $actorBarangay;
+            }
+        } catch (\Throwable $e) {
+            error_log('[sendNotification] actor lookup failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        $recipientStmt = $db->prepare("SELECT role, barangay_id FROM users WHERE id=? AND status='active'");
+        $recipientStmt->execute([$userId]);
+        $recipient = $recipientStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$recipient) {
+            error_log("[sendNotification] skipped notification for missing or inactive recipient $userId");
+            return;
+        }
+
+        if (
+            $recipient['role'] === 'super_admin'
+            && !in_array($category, ['system', 'transaction', 'announcement'], true)
+        ) {
+            error_log("[sendNotification] skipped non-administrative category '$category' for super admin $userId");
+            return;
+        }
+
+        if (
+            $actorRole === 'barangay_admin'
+            && $recipient['role'] === 'barangay_admin'
+            && (int)$recipient['barangay_id'] !== $actorBarangayId
+        ) {
+            error_log("[sendNotification] skipped cross-barangay notification from user $actorId to user $userId");
+            return;
+        }
+
+        if (
+            $actorRole === 'barangay_admin'
+            && $recipient['role'] === 'super_admin'
+            && !in_array($category, ['system', 'transaction'], true)
+        ) {
+            error_log("[sendNotification] skipped unauthorized category '$category' from barangay admin $actorId");
+            return;
+        }
+    } catch (\Throwable $e) {
+        error_log('[sendNotification] recipient validation failed: ' . $e->getMessage());
+        return;
+    }
+
+    if ($category === 'transaction') {
+        $refreshNote = ' Please refresh the page to see the latest update.';
+        if (!str_contains($message, $refreshNote)) {
+            $message .= $refreshNote;
+        }
     }
 
     // ── Dedup guard: suppress identical notification inserted within the last 5 seconds ─
@@ -181,26 +357,43 @@ function sendNotification(int $userId, string $message, string $type = 'info', s
         error_log('[sendNotification] dedup check failed: ' . $e->getMessage());
     }
 
-    // ── Insert — fall back to no-category INSERT if column still absent ──────
+    // ── Insert — fall back if optional notification metadata columns are absent ─
     try {
-        $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category) VALUES (?,?,?,?)");
-        $stmt->execute([$userId, $message, $type, $category]);
+        $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category, actor_email, actor_name, actor_barangay) VALUES (?,?,?,?,?,?,?)");
+        $stmt->execute([$userId, $message, $type, $category, $actorEmail ?: null, $actorName ?: null, $actorBarangay ?: null]);
     } catch (\Throwable $e) {
-        // Likely the category column doesn't exist yet — insert without it
         try {
-            $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?,?,?)");
-            $stmt->execute([$userId, $message, $type]);
-            error_log('[sendNotification] inserted without category column: ' . $e->getMessage());
-        } catch (\Throwable $e2) {
-            error_log('[sendNotification] insert failed entirely: ' . $e2->getMessage());
-            return;
+            $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category, actor_email, actor_name) VALUES (?,?,?,?,?,?)");
+            $stmt->execute([$userId, $message, $type, $category, $actorEmail ?: null, $actorName ?: null]);
+            error_log('[sendNotification] inserted without actor barangay metadata: ' . $e->getMessage());
+        } catch (\Throwable $categoryError) {
+            try {
+                $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category, actor_email) VALUES (?,?,?,?,?)");
+                $stmt->execute([$userId, $message, $type, $category, $actorEmail ?: null]);
+                error_log('[sendNotification] inserted without actor name and barangay metadata: ' . $categoryError->getMessage());
+            } catch (\Throwable $actorMetadataError) {
+                try {
+                    $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type, category) VALUES (?,?,?,?)");
+                    $stmt->execute([$userId, $message, $type, $category]);
+                    error_log('[sendNotification] inserted without actor email, name, and barangay metadata: ' . $actorMetadataError->getMessage());
+                } catch (\Throwable $e2) {
+                    try {
+                        $stmt = $db->prepare("INSERT INTO notifications (user_id, message, type) VALUES (?,?,?)");
+                        $stmt->execute([$userId, $message, $type]);
+                        error_log('[sendNotification] inserted without category or actor metadata: ' . $e2->getMessage());
+                    } catch (\Throwable $insertError) {
+                        error_log('[sendNotification] insert failed entirely: ' . $insertError->getMessage());
+                        return;
+                    }
+                }
+            }
         }
     }
 
     // Real-time push via Pusher (no-op if Pusher not configured)
     $notifId   = (int)$db->lastInsertId();
     $createdAt = date('Y-m-d H:i:s');
-    pushNotification($userId, $notifId, $message, $type, $createdAt, $category);
+    pushNotification($userId, $notifId, $message, $type, $createdAt, $category, $actorEmail, $actorName, $actorBarangay);
 }
 
 function getUnreadNotifications(int $userId): array {
@@ -233,7 +426,7 @@ function countUnreadNotifications(int $userId): int {
  * @param string $category  Semantic category (resident / system / transaction / etc.)
  * @param int    $excludeId User ID to skip (0 = exclude nobody)
  */
-function notifySuperAdmins(string $message, string $type = 'info', string $category = 'system', int $excludeId = 0): void {
+function notifySuperAdmins(string $message, string $type = 'info', string $category = 'system', int $excludeId = 0, ?array $actorOverride = null): void {
     $db = Database::getInstance()->getConnection();
     try {
         $stmt = $db->prepare(
@@ -242,7 +435,7 @@ function notifySuperAdmins(string $message, string $type = 'info', string $categ
         );
         $stmt->execute();
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $adminId) {
-            sendNotification((int)$adminId, $message, $type, $category);
+            sendNotification((int)$adminId, $message, $type, $category, $actorOverride);
         }
     } catch (\Throwable $e) {
         error_log('[notifySuperAdmins] failed: ' . $e->getMessage());
