@@ -27,6 +27,13 @@ if (!$socketId || !$channelName) {
     exit;
 }
 
+// Validate socket_id format (Pusher uses "digits.digits")
+if (!preg_match('/^\d+\.\d+$/', $socketId)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid socket_id format']);
+    exit;
+}
+
 // Only allow subscribing to the user's own channel
 $u              = currentUser();
 $expectedChannel = "private-user-{$u['id']}";

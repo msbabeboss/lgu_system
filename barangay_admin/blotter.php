@@ -252,6 +252,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         sendNotification($u['id'], $notifMsg, $notifType, 'transaction');
         notifyBarangayAdmins($bid, $notifMsg, $notifType, 'transaction', $u['id']);
 
+        // Bell super admins for new blotter case or status update
+        if ($action === 'add') {
+            $brgyNameForNotif = $db->query("SELECT barangay_name FROM barangays WHERE id=$bid")->fetchColumn() ?: 'Barangay';
+            notifySuperAdmins(
+                "New blotter case filed in {$brgyNameForNotif}: case #{$blotterId} — {$data['case_title']}",
+                'warning',
+                'transaction'
+            );
+        }
+
         // Email super admins when a NEW blotter case is filed
         if ($action === 'add') {
             $superAdmins = $db->query("SELECT id, email, CONCAT(first_name,' ',last_name) as name FROM users WHERE role='super_admin' AND status='active' AND email != ''")->fetchAll();

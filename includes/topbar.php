@@ -197,12 +197,15 @@ try {
                     </div>
                 </li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="<?= BASE_URL ?>/logout.php"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                <li><button type="submit" form="logoutForm" class="dropdown-item text-danger"><i class="bi bi-box-arrow-right me-2"></i>Logout</button></li>
             </ul>
         </div>
 
     </div><!-- end right side -->
 </nav>
+<form id="logoutForm" method="POST" action="<?= BASE_URL ?>/logout.php" class="d-none">
+    <?= csrfField() ?>
+</form>
 <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Close navigation"
         onclick="setResponsiveSidebarOpen(false)"></button>
 
@@ -486,11 +489,6 @@ function toggleSidebar() {
     }
 })();
 
-// ── Page transition: instant navigate (no fade — prevents freeze on slow connections) ────────────────
-(function () {
-    // No fade-out — direct navigation only
-})();
-
 // ── bfcache: prevent stale page restore that hides fixed elements ──
 window.addEventListener('pageshow', function(e) {
     if (e.persisted) {
@@ -732,6 +730,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const btn = markAllBtn();
         if (btn) btn.classList.remove('d-none');
 
+        // Show toast notification for incoming realtime notification
+        showToast(notif.message, notif.type);
+
         // Flash the bell icon
         const bell = document.getElementById('notifBellBtn');
         if (bell) {
@@ -746,6 +747,73 @@ document.addEventListener('DOMContentLoaded', function() {
             const plainMsg = _tmp.textContent || _tmp.innerText || '';
             new Notification('New Notification', { body: plainMsg, icon: '<?= BASE_URL ?>/assets/img/logo 1.jpg' });
         }
+    }
+
+    // ── Show toast notification ────────────────────────────
+    function showToast(message, type) {
+        const container = document.getElementById('notifToastContainer');
+        if (!container) return;
+
+        // Strip HTML tags to get plain text for toast display
+        const tmp = document.createElement('div');
+        tmp.innerHTML = message || '';
+        const plainMsg = (tmp.textContent || tmp.innerText || '').trim();
+
+        // Map type to accent colour and icon
+        const accentMap = {
+            success : '#22c55e',
+            warning : '#f59e0b',
+            danger  : '#ef4444',
+            info    : '#3b82f6',
+        };
+        const iconMap = {
+            success : 'bi-check-circle-fill',
+            warning : 'bi-exclamation-triangle-fill',
+            danger  : 'bi-x-circle-fill',
+            info    : 'bi-info-circle-fill',
+        };
+        const accent = accentMap[type] || accentMap.info;
+        const icon   = iconMap[type]   || iconMap.info;
+        const duration = 5000;
+
+        const toast = document.createElement('div');
+        toast.className = 'notif-toast';
+        toast.style.setProperty('--toast-accent', accent);
+        toast.style.setProperty('--toast-duration', duration + 'ms');
+
+        toast.innerHTML =
+            `<i class="bi ${icon} notif-toast-icon" style="color:${accent};"></i>` +
+            `<div class="notif-toast-body">` +
+                `<div class="notif-toast-title">${(type || 'info').toUpperCase()}</div>` +
+                `<div class="notif-toast-msg">${plainMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` +
+            `</div>` +
+            `<button class="notif-toast-close" title="Dismiss" aria-label="Dismiss notification">&times;</button>` +
+            `<div class="notif-toast-progress"></div>`;
+
+        // Close button handler
+        toast.querySelector('.notif-toast-close').addEventListener('click', function () {
+            dismissToast(toast);
+        });
+
+        container.appendChild(toast);
+
+        // Auto-dismiss after duration
+        const timer = setTimeout(function () { dismissToast(toast); }, duration);
+        toast._dismissTimer = timer;
+    }
+
+    function dismissToast(toast) {
+        if (toast._dismissed) return;
+        toast._dismissed = true;
+        clearTimeout(toast._dismissTimer);
+        toast.classList.add('toast-out');
+        toast.addEventListener('animationend', function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, { once: true });
+        // Fallback removal in case animationend doesn't fire
+        setTimeout(function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 600);
     }
 
     // ── Mark all read ─────────────────────────────────────
@@ -970,8 +1038,6 @@ document.addEventListener('DOMContentLoaded', function () {
 $_idleUnit    = in_array($_idleUnit, ['seconds','minutes']) ? $_idleUnit : 'minutes';
 $_idleValue   = max(1, (int)$_idleMinutes);
 $_idleMs      = $_idleUnit === 'seconds' ? $_idleValue * 1000 : $_idleValue * 60 * 1000;
-$_loginUrl    = BASE_URL . '/index.php';
-$_logoutUrl   = BASE_URL . '/logout.php';
 ?>
 <!-- ── Idle Timeout Modal ─────────────────────────────────── -->
 <div id="idleOverlay" style="display:none;position:fixed;inset:0;background:rgba(10,20,40,0.72);z-index:99999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
@@ -997,8 +1063,6 @@ $_logoutUrl   = BASE_URL . '/logout.php';
 (function () {
     const IDLE_MS    = <?= (int)$_idleMs ?>;
     const WARN_SEC   = 10;   // countdown seconds before auto-logout
-    const LOGIN_URL  = '<?= addslashes($_loginUrl) ?>';
-    const LOGOUT_URL = '<?= addslashes($_logoutUrl) ?>';
     const ACTIVITY_KEY = 'lgu:last-activity:<?= (int)$u['id'] ?>';
 
     let idleTimer, countdownTimer, countdownSec;
@@ -1052,11 +1116,7 @@ $_logoutUrl   = BASE_URL . '/logout.php';
         clearInterval(countdownTimer);
         const loginButton = document.getElementById('idleLoginBtn');
         if (loginButton) loginButton.disabled = true;
-        fetch(LOGOUT_URL, { method: 'POST', credentials: 'same-origin' })
-            .catch(function () {})
-            .finally(function () {
-                window.location.replace(LOGIN_URL);
-            });
+        document.getElementById('logoutForm').submit();
     }
 
     function showLockScreen() {

@@ -632,7 +632,7 @@ function doChangePassword() {
         if (data.ok) {
             showCPAlert(data.msg, 'success');
             document.getElementById('cpConfirmStep').style.display = 'none';
-            setTimeout(function(){ window.location.href = '<?= BASE_URL ?>/logout.php'; }, 1800);
+            setTimeout(function(){ document.getElementById('logoutForm').submit(); }, 1800);
         } else {
             showCPAlert(data.msg, 'danger');
             btn.disabled = false;
@@ -778,7 +778,6 @@ $pageSubtitle = 'Manage your account and barangay configuration.';
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_barangay.php'; ?>
-<?php include __DIR__ . '/../includes/topbar.php'; ?>
 
 <div class="main-content">
 
@@ -1673,7 +1672,7 @@ function doChangePassword() {
         if (data.ok) {
             showCPAlert(data.msg, 'success');
             document.getElementById('cpConfirmStep').style.display = 'none';
-            setTimeout(() => { window.location.href = '<?= BASE_URL ?>/logout.php'; }, 1800);
+            setTimeout(() => { document.getElementById('logoutForm').submit(); }, 1800);
         } else {
             showCPAlert(data.msg, 'danger');
             btn.disabled = false;
