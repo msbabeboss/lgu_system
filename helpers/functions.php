@@ -12,7 +12,9 @@ function sanitize(string $input): string {
  * The token is regenerated only on login (session_regenerate_id) and logout.
  */
 function generateCsrfToken(): string {
-    if (empty($_SESSION['csrf_token'])) {
+    if (!isset($_SESSION['csrf_token'])
+        || !is_string($_SESSION['csrf_token'])
+        || !preg_match('/\A[a-f0-9]{64}\z/', $_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
     return $_SESSION['csrf_token'];
@@ -24,16 +26,18 @@ function generateCsrfToken(): string {
  */
 function verifyCsrfToken(): bool {
     $sessionToken = $_SESSION['csrf_token'] ?? '';
-    if (!$sessionToken) return false;
+    if (!is_string($sessionToken) || !preg_match('/\A[a-f0-9]{64}\z/', $sessionToken)) return false;
 
     // Form POST field
     $submitted = $_POST['csrf_token'] ?? '';
+    if (!is_string($submitted)) return false;
 
     // AJAX header fallback (fetch() requests send X-CSRF-Token header)
-    if (!$submitted) {
+    if ($submitted === '') {
         $submitted = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     }
 
+    if (!is_string($submitted) || $submitted === '') return false;
     return hash_equals($sessionToken, $submitted);
 }
 
