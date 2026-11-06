@@ -74,21 +74,8 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
-        .activity-pagination {
-            display: flex; justify-content: center;
-            padding: 12px; background: #f1f6fb;
-            border-top: 1px solid #e2e8f0;
-        }
-        .pagination .page-link {
-            border-radius: 6px !important; margin: 0 1px; min-width: 30px;
-            text-align: center; font-size: 0.78rem; padding: 3px 8px;
-        }
-        .activity-log-table tbody td {
-            padding-top: 6px !important;
-            padding-bottom: 6px !important;
-        }
     </style>
 </head>
 <body>
@@ -218,31 +205,18 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
             </table>
         </div>
 
-        <?php if ($totalRows > 0):
+        <?php
             $queryParams = $_GET;
             unset($queryParams['page']);
             $baseQuery = http_build_query($queryParams);
-            $baseUrl = '?' . ($baseQuery ? $baseQuery . '&' : '');
-            $pageStart = max(1, $activityPage - 2);
-            $pageEnd = min($totalPages, $activityPage + 2);
+            $paginationBase = '?' . ($baseQuery ? $baseQuery . '&' : '');
+            $page = (int)$activityPage;
+            $totalCount = (int)$totalRows;
+            $paginationAnchor = '#logs-table';
+            $paginationLinkClass = 'page-nav';
         ?>
-        <nav class="activity-pagination" aria-label="Activity log table pagination">
-            <ul class="pagination pagination-sm mb-0">
-                <li class="page-item <?= $activityPage <= 1 ? 'disabled' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . max(1, $activityPage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page">&laquo;</a>
-                </li>
-                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
-                <li class="page-item <?= $pageNumber === $activityPage ? 'active' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $activityPage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
-                </li>
-                <?php endfor; ?>
-                <li class="page-item <?= $activityPage >= $totalPages ? 'disabled' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . min($totalPages, $activityPage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page">&raquo;</a>
-                </li>
-            </ul>
-        </nav>
-    </div>
-    <?php endif; ?>
+        </div>
+        <?php include __DIR__ . '/../includes/pagination.php'; ?>
 
 </div><!-- /.main-content -->
 
@@ -251,6 +225,7 @@ $pageSubtitle = 'Tracks all actions performed by system administrators.';
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('show'); }
 document.querySelectorAll('.page-nav').forEach(function(link) {
     link.addEventListener('click', function(e) {
+        if (this.closest('.table-pagination')) return;
         if (this.closest('li').classList.contains('disabled')) return;
         e.preventDefault();
         var t = document.getElementById('logs-table');

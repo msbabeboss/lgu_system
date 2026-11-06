@@ -23,6 +23,7 @@ foreach ([
     "ALTER TABLE residents ADD COLUMN official_id INT UNSIGNED NULL",
     "ALTER TABLE residents ADD COLUMN official_position VARCHAR(100) NULL",
     "ALTER TABLE residents ADD COLUMN email VARCHAR(150) NULL",
+    "ALTER TABLE residents MODIFY COLUMN email VARCHAR(150) NULL",
 ] as $sql) { try { $db->exec($sql); } catch (PDOException $e) {} }
 
 // Fetch barangay info
@@ -58,17 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contact = sanitize($_POST['contact_number'] ?? '');
     $email   = sanitize($_POST['email'] ?? '');
 
-    if ($contact && !preg_match('/^09\d{9}$/', $contact)) {
-        flash('res', 'Contact number must be 11 digits and start with 09 (e.g. 09171234567).', 'danger');
+    if ($contact !== '' && !preg_match('/^\d+$/', $contact)) {
+        flash('res', 'Contact number must contain digits only.', 'danger');
         redirect(BASE_URL . '/barangay_admin/add_resident.php');
-    }
-    if ($contact) {
-        $dupQ = $db->prepare("SELECT id FROM residents WHERE contact_number=? AND barangay_id=? AND resident_status NOT IN ('Inactive','Deceased','Transferred')");
-        $dupQ->execute([$contact, $bid]);
-        if ($dupQ->fetch()) {
-            flash('res', "Contact number <strong>$contact</strong> is already in use by another resident.", 'danger');
-            redirect(BASE_URL . '/barangay_admin/add_resident.php');
-        }
     }
 
     $voter   = $_POST['voter_status'];
@@ -120,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $addrId = $db->lastInsertId();
 
     $stmt = $db->prepare("INSERT INTO residents (barangay_id,first_name,middle_name,last_name,suffix,birthdate,age,civil_status,gender,contact_number,email,address_id,voter_status,is_4ps,is_pwd,is_senior,is_solo_parent,resident_status,occupation_status,photo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    $stmt->execute([$bid,$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact,$email ?: null,$addrId,$voter,$is4ps,$isPwd,$isSenior,$isSolo,'Active',$occup,$newPhotoFile]);
+    $stmt->execute([$bid,$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact ?: null,$email ?: null,$addrId,$voter,$is4ps,$isPwd,$isSenior,$isSolo,'Active',$occup,$newPhotoFile]);
     $newResidentId = (int)$db->lastInsertId();
 
     // Household linking
@@ -558,15 +551,15 @@ $fromOfficial = !empty($prefill);
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="field-label">Contact Number</label>
+                                <label class="field-label">Contact Number <span class="text-muted fw-normal">(Optional)</span></label>
                                 <input type="text" name="contact_number" id="fContact" class="form-control"
-                                       inputmode="numeric" pattern="09[0-9]{9}" placeholder="e.g. 09171234567"
+                                       inputmode="numeric" placeholder="Numbers only"
                                        oninput="this.value=this.value.replace(/[^0-9]/g,'');validateContact(this,'fContactErr')"
                                        onkeydown="if(!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab|Home|End/.test(event.key))event.preventDefault()">
                                 <div id="fContactErr" class="text-danger mt-1" style="display:none;font-size:0.72rem;"></div>
                             </div>
                             <div class="col-md-4">
-                                <label class="field-label">Email Address</label>
+                                <label class="field-label">Email Address <span class="text-muted fw-normal">(Optional)</span></label>
                                 <input type="email" name="email" id="fEmail" class="form-control"
                                        placeholder="e.g. juan@email.com"
                                        value="">
@@ -934,12 +927,12 @@ function validateContact(input, errId) {
     const val = input.value.trim();
     const err = document.getElementById(errId);
     if (!val) { input.classList.remove('is-invalid','is-valid'); err.style.display='none'; return; }
-    if (/^09\d{9}$/.test(val)) {
+    if (/^\d+$/.test(val)) {
         input.classList.remove('is-invalid'); input.classList.add('is-valid');
         err.style.display = 'none';
     } else {
         input.classList.remove('is-valid'); input.classList.add('is-invalid');
-        err.textContent = 'Must be 11 digits starting with 09.';
+        err.textContent = 'Numbers only.';
         err.style.display = 'block';
     }
 }

@@ -21,6 +21,7 @@ if (!$_ownCheck->fetch()) { redirect(BASE_URL . '/barangay_admin/residents.php')
 // Add 'Pending Transfer' to resident_status ENUM
 try { $db->exec("ALTER TABLE residents MODIFY COLUMN resident_status ENUM('Active','Inactive','Deceased','Transferred','Pending Transfer') DEFAULT 'Active'"); } catch (PDOException $e) {}
 try { $db->exec("ALTER TABLE residents ADD COLUMN IF NOT EXISTS email VARCHAR(150) NULL"); } catch (PDOException $e) {}
+try { $db->exec("ALTER TABLE residents MODIFY COLUMN email VARCHAR(150) NULL"); } catch (PDOException $e) {}
 
 // Bootstrap resident_transfer_requests table
 $db->exec("CREATE TABLE IF NOT EXISTS resident_transfer_requests (
@@ -107,17 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contact = sanitize($_POST['contact_number'] ?? '');
     $email   = sanitize($_POST['email'] ?? '');
 
-    if ($contact && !preg_match('/^09\d{9}$/', $contact)) {
-        flash('res', 'Contact number must be 11 digits starting with 09.', 'danger');
+    if ($contact !== '' && !preg_match('/^\d+$/', $contact)) {
+        flash('res', 'Contact number must contain digits only.', 'danger');
         redirect(BASE_URL . '/barangay_admin/edit_resident.php?id=' . $id);
-    }
-    if ($contact) {
-        $dupQ = $db->prepare("SELECT id FROM residents WHERE contact_number=? AND barangay_id=? AND id!=? AND resident_status NOT IN ('Inactive','Deceased','Transferred')");
-        $dupQ->execute([$contact, $bid, $id]);
-        if ($dupQ->fetch()) {
-            flash('res', "Contact number <strong>$contact</strong> is already in use by another resident.", 'danger');
-            redirect(BASE_URL . '/barangay_admin/edit_resident.php?id=' . $id);
-        }
     }
 
     $voter   = $_POST['voter_status'];
@@ -200,10 +193,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unlink($photoDir . $res['photo']);
         }
         $db->prepare("UPDATE residents SET first_name=?,middle_name=?,last_name=?,suffix=?,birthdate=?,age=?,civil_status=?,gender=?,contact_number=?,email=?,voter_status=?,is_4ps=?,is_pwd=?,is_senior=?,is_solo_parent=?,resident_status=?,occupation_status=?,transfer_from_barangay=?,transfer_to_barangay=?,transfer_outside=?,transfer_reason=?,archive_reason=?,photo=? WHERE id=? AND barangay_id=?")
-           ->execute([$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact,$email ?: null,$voter,$is4ps,$isPwd,$isSenior,$isSolo,$saveStatus,$occup,$transferFrom,$transferTo,$transferOutside,$transferReason,$archiveReason,$newPhotoFile,$id,$bid]);
+           ->execute([$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact ?: null,$email ?: null,$voter,$is4ps,$isPwd,$isSenior,$isSolo,$saveStatus,$occup,$transferFrom,$transferTo,$transferOutside,$transferReason,$archiveReason,$newPhotoFile,$id,$bid]);
     } else {
         $db->prepare("UPDATE residents SET first_name=?,middle_name=?,last_name=?,suffix=?,birthdate=?,age=?,civil_status=?,gender=?,contact_number=?,email=?,voter_status=?,is_4ps=?,is_pwd=?,is_senior=?,is_solo_parent=?,resident_status=?,occupation_status=?,transfer_from_barangay=?,transfer_to_barangay=?,transfer_outside=?,transfer_reason=?,archive_reason=? WHERE id=? AND barangay_id=?")
-           ->execute([$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact,$email ?: null,$voter,$is4ps,$isPwd,$isSenior,$isSolo,$saveStatus,$occup,$transferFrom,$transferTo,$transferOutside,$transferReason,$archiveReason,$id,$bid]);
+           ->execute([$fname,$mname,$lname,$suffix,$bdate,$age,$civil,$gender,$contact ?: null,$email ?: null,$voter,$is4ps,$isPwd,$isSenior,$isSolo,$saveStatus,$occup,$transferFrom,$transferTo,$transferOutside,$transferReason,$archiveReason,$id,$bid]);
     }
 
     if ($status === 'Deceased') {
@@ -630,16 +623,16 @@ $fullName  = trim($res['last_name'] . ', ' . $res['first_name'] . ($res['middle_
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="field-label">Contact Number</label>
+                                <label class="field-label">Contact Number <span class="text-muted fw-normal">(Optional)</span></label>
                                 <input type="text" name="contact_number" id="fContact" class="form-control"
-                                       inputmode="numeric" pattern="09[0-9]{9}" placeholder="e.g. 09171234567"
+                                       inputmode="numeric" placeholder="Numbers only"
                                        value="<?= htmlspecialchars($res['contact_number'] ?? '') ?>"
                                        oninput="this.value=this.value.replace(/[^0-9]/g,'');validateContact(this,'fContactErr')"
                                        onkeydown="if(!/[0-9]|Backspace|Delete|ArrowLeft|ArrowRight|Tab|Home|End/.test(event.key))event.preventDefault()">
                                 <div id="fContactErr" class="text-danger mt-1" style="display:none;font-size:0.72rem;"></div>
                             </div>
                             <div class="col-md-4">
-                                <label class="field-label">Email Address</label>
+                                <label class="field-label">Email Address <span class="text-muted fw-normal">(Optional)</span></label>
                                 <input type="email" name="email" id="fEmail" class="form-control"
                                        placeholder="e.g. juan@email.com"
                                        value="<?= htmlspecialchars($res['email'] ?? '') ?>">
@@ -1110,8 +1103,8 @@ function calcAge(bdate) {
 function validateContact(input, errId) {
     const val = input.value.trim(), err = document.getElementById(errId);
     if (!val) { input.classList.remove('is-invalid','is-valid'); err.style.display='none'; return; }
-    if (/^09\d{9}$/.test(val)) { input.classList.remove('is-invalid'); input.classList.add('is-valid'); err.style.display='none'; }
-    else { input.classList.remove('is-valid'); input.classList.add('is-invalid'); err.textContent='Must be 11 digits starting with 09.'; err.style.display='block'; }
+    if (/^\d+$/.test(val)) { input.classList.remove('is-invalid'); input.classList.add('is-valid'); err.style.display='none'; }
+    else { input.classList.remove('is-valid'); input.classList.add('is-invalid'); err.textContent='Numbers only.'; err.style.display='block'; }
 }
 
 function onStatusChange(status) {

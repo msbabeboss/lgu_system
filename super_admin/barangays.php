@@ -165,6 +165,7 @@ $barangays = $db->query("
 $paginationBase = '?' . http_build_query(array_filter(['search' => $search, 'status' => $statusFilter]));
 $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
 $paginationLabel = 'barangay';
+$paginationAjaxJson = true;
 
 if ($isAjaxRequest) {
     ob_start();
@@ -204,7 +205,7 @@ $pageSubtitle = 'Manage all barangays in the system.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -289,9 +290,8 @@ $pageSubtitle = 'Manage all barangays in the system.';
             </table>
         </div>
     </div>
-</div>
-
 <?php include __DIR__ . '/../includes/pagination.php'; ?>
+</div>
 
 <!-- ── View Modal ─────────────────────────────────────────── -->
 <div class="modal fade" id="viewBrgyModal" tabindex="-1">
@@ -604,66 +604,6 @@ function openArchiveBrgy(id, name) {
     bootstrap.Modal.getOrCreateInstance(document.getElementById('archiveBrgyModal')).show();
 }
 
-let barangayPageLoading = false;
-async function loadBarangayPage(url, addHistory = true) {
-    if (barangayPageLoading) return;
-
-    const tableBody = document.querySelector('#brgyTable tbody');
-    const pagination = document.querySelector('.table-pagination');
-    const status = document.getElementById('barangayPaginationStatus');
-    if (!tableBody || !pagination || !status) return;
-
-    barangayPageLoading = true;
-    tableBody.setAttribute('aria-busy', 'true');
-    status.textContent = 'Loading barangays...';
-    status.className = 'small text-muted text-center py-2';
-
-    try {
-        const response = await fetch(url, {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        });
-        if (!response.ok) {
-            throw new Error(`Page request failed (${response.status}).`);
-        }
-
-        const pageData = await response.json();
-        if (typeof pageData.rowsHtml !== 'string' || typeof pageData.paginationHtml !== 'string') {
-            throw new Error('The server response did not contain the barangay table.');
-        }
-
-        const paginationTemplate = document.createElement('template');
-        paginationTemplate.innerHTML = pageData.paginationHtml;
-        const newPagination = paginationTemplate.content.querySelector('.table-pagination');
-        if (!newPagination) {
-            throw new Error('The server response did not contain pagination controls.');
-        }
-
-        tableBody.innerHTML = pageData.rowsHtml;
-        pagination.replaceWith(newPagination);
-        document.getElementById('selectAll').checked = false;
-        if (addHistory) {
-            history.pushState({}, '', url);
-        }
-        status.textContent = '';
-        status.className = '';
-    } catch (error) {
-        console.error('Unable to load the requested barangay page:', error);
-        status.textContent = 'Hindi na-load ang page. Subukan ulit.';
-        status.className = 'alert alert-danger py-2 mb-2';
-    } finally {
-        barangayPageLoading = false;
-        tableBody.removeAttribute('aria-busy');
-    }
-}
-
-document.addEventListener('click', event => {
-    const link = event.target.closest('.table-pagination a.page-link');
-    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    loadBarangayPage(link.href);
-});
-
-window.addEventListener('popstate', () => loadBarangayPage(window.location.href, false));
 </script>
 <style>.btn-xs { padding: 2px 8px; font-size: 0.75rem; }</style>
 </body>

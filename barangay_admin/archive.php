@@ -152,7 +152,7 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body>
@@ -351,13 +351,14 @@ $pageSubtitle = 'Inactive or removed records.';
         </div>
         <?php endif; ?>
     </div>
-</div>
 
-<?php
-$paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
-$paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-?>
-<?php $paginationBase = $paginationBase; $paginationLabel = 'archived record'; include __DIR__ . '/../includes/pagination.php'; ?>
+    <?php
+    $paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
+    $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
+    $paginationLabel = 'archived record';
+    include __DIR__ . '/../includes/pagination.php';
+    ?>
+</div>
 
 <!-- Hidden Forms -->
 <form method="POST" id="archiveRestoreForm">

@@ -100,7 +100,7 @@ $statusF   = trim(strip_tags($_GET['status']   ?? ''));
 $sort      = trim(strip_tags($_GET['sort']     ?? 'name'));
 $dateFrom  = trim(strip_tags($_GET['date_from']?? ''));
 $dateTo    = trim(strip_tags($_GET['date_to']  ?? ''));
-$perPage   = 20;
+$perPage   = 10;
 $page      = max(1, (int)($_GET['page'] ?? 1));
 
 $allBarangays = []; // locked — barangay pre-selected from hub
@@ -155,7 +155,7 @@ $pageSubtitle = 'Officials of ' . htmlspecialchars($brgyRow['barangay_name']);
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>

@@ -142,7 +142,7 @@ $pageSubtitle = '';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         .notif-row {
             display: flex; align-items: flex-start; gap: 14px;
@@ -164,11 +164,6 @@ $pageSubtitle = '';
 
         .empty-state { padding: 50px 20px; text-align: center; color: #9ca3af; }
         .empty-state i { font-size: 2rem; margin-bottom: 8px; display: block; }
-        .pagination .page-link {
-            border-radius: 6px !important; margin: 0 1px; min-width: 30px;
-            text-align: center; font-size: 0.78rem; padding: 3px 8px;
-        }
-
         /* filter row */
         .notif-filter-row {
             display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -250,10 +245,11 @@ $pageSubtitle = '';
     </div>
 
     <!-- Pagination -->
-    <div id="notif-pagination" class="table-pagination mt-3 d-flex justify-content-center"></div>
+    <nav id="notif-pagination" class="table-pagination mt-3 d-flex justify-content-center" aria-label="Pagination"></nav>
 
 </div>
 
+<?php $paginationScriptOnly = true; include __DIR__ . '/../includes/pagination.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 (function () {
@@ -322,23 +318,10 @@ $pageSubtitle = '';
 
     // ── Render pagination ──────────────────────────────────
     function renderPagination(d) {
-        var html = '<nav aria-label="Notification pagination"><ul class="pagination pagination-sm mb-0">';
-        html += '<li class="page-item' + (d.page<=1?' disabled':'') + '"><a class="page-link" href="#" data-p="'+(d.page-1)+'">&laquo;</a></li>';
-        for (var p = Math.max(1,d.page-2); p <= Math.min(d.totalPages,d.page+2); p++) {
-            html += '<li class="page-item'+(p===d.page?' active':'')+'"><a class="page-link" href="#" data-p="'+p+'">'+p+'</a></li>';
-        }
-        html += '<li class="page-item'+(d.page>=d.totalPages?' disabled':'')+'"><a class="page-link" href="#" data-p="'+(d.page+1)+'">&raquo;</a></li>';
-        html += '</ul></nav>';
-        pagWrap.innerHTML = html;
-        pagWrap.querySelectorAll('a[data-p]').forEach(function(a){
-            a.addEventListener('click', function(e){
-                e.preventDefault();
-                var p = parseInt(this.dataset.p, 10);
-                if (p < 1 || p > d.totalPages) return;
-                state.page = p;
-                load();
-                wrap.closest('.card').scrollIntoView({behavior:'smooth',block:'start'});
-            });
+        window.renderSharedPagination(pagWrap, d.page, d.totalPages, function(page) {
+            state.page = page;
+            load();
+            wrap.closest('.card').scrollIntoView({behavior:'smooth',block:'start'});
         });
     }
 

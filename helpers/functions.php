@@ -481,10 +481,12 @@ function calculateAge(string $birthdate): int {
 function generateCaseNumber(int $barangayId): string {
     $year = date('Y');
     $db = Database::getInstance()->getConnection();
-    $stmt = $db->prepare("SELECT COUNT(*) FROM blotter_cases WHERE barangay_id = ? AND YEAR(created_at) = ?");
-    $stmt->execute([$barangayId, $year]);
-    $count = (int)$stmt->fetchColumn() + 1;
-    return "BLT-{$barangayId}-{$year}-" . str_pad($count, 4, '0', STR_PAD_LEFT);
+    $stmt = $db->prepare("SELECT MAX(CAST(SUBSTRING_INDEX(case_number, '-', -1) AS UNSIGNED))
+        FROM blotter_cases
+        WHERE barangay_id = ? AND case_number LIKE ?");
+    $stmt->execute([$barangayId, "BLT-{$barangayId}-{$year}-%"]);
+    $nextNumber = (int)$stmt->fetchColumn() + 1;
+    return "BLT-{$barangayId}-{$year}-" . str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
 }
 
 function generateHouseholdCode(int $barangayId): string {

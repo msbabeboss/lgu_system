@@ -20,7 +20,7 @@ $search    = trim(strip_tags($_GET['search']    ?? ''));
 $statusF   = trim(strip_tags($_GET['status']    ?? ''));
 $dirFilter = trim(strip_tags($_GET['direction'] ?? '')); // 'outgoing' | 'incoming' | ''
 $sort      = trim(strip_tags($_GET['sort']      ?? 'date'));
-$perPage   = 20;
+$perPage   = 10;
 $page      = max(1, (int)($_GET['page'] ?? 1));
 
 // Build WHERE — always scoped to this barangay as origin or destination
@@ -84,7 +84,7 @@ $pageSubtitle = 'Transfer records involving ' . htmlspecialchars($brgyRow['baran
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>
@@ -265,8 +265,6 @@ $pageSubtitle = 'Transfer records involving ' . htmlspecialchars($brgyRow['baran
         </div>
     </div>
 
-</div><!-- /main-content -->
-
 <?php
 $paginationBase = '?' . http_build_query(array_filter([
     'barangay_id' => $brgFilter,
@@ -278,6 +276,7 @@ $paginationBase = '?' . http_build_query(array_filter([
 $paginationLabel = 'record';
 include __DIR__ . '/../includes/pagination.php';
 ?>
+</div><!-- /main-content -->
 
 <!-- View Transfer Modal -->
 <div class="modal fade" id="viewTransferModal" tabindex="-1">

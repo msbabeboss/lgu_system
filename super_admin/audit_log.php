@@ -10,30 +10,69 @@ $dateFrom   = sanitize($_GET['date_from'] ?? '');
 $dateTo     = sanitize($_GET['date_to']   ?? '');
 $userFilter = (int)($_GET['user_id'] ?? 0);
 
-// Audit = CRUD/write actions only (Who changed what?)
-$auditActions = [
-    'ADD_USER','EDIT_USER','ARCHIVE_USER','DELETE_USER','BLOCK_USER',
-    'RESET_PASSWORD','CHANGE_PASSWORD',
-    'ADD_BARANGAY','EDIT_BARANGAY','DELETE_BARANGAY',
-    'ADD_NOTICE','DELETE_NOTICE','EDIT_NOTICE',
-    'ADD_REPORT','SUBMIT_REPORT','DELETE_REPORT',
-    'ADD_RESIDENT','EDIT_RESIDENT','ARCHIVE_RESIDENT','DELETE_RESIDENT',
-    'ADD_HOUSEHOLD','EDIT_HOUSEHOLD','DELETE_HOUSEHOLD',
-    'ADD_BLOTTER','EDIT_BLOTTER','DELETE_BLOTTER',
-    'ISSUE_CERTIFICATE','DELETE_CERTIFICATE',
-    'RESTORE_ARCHIVE','PERMANENT_DELETE',
-];
-$placeholders = implode(',', array_fill(0, count($auditActions), '?'));
-
+/**
+ * SUPER ADMIN AUDIT LOG — Mga records na nalo-log at na-audit dito.
+ *
+ * Scope: lahat ng actions kung saan super_admin ang gumawa (u.role = 'super_admin'),
+ * within 2-year retention window. Pinagkukuwan sa iisang `activity_logs` table.
+ * Columns per row: user_id, action, module, description, ip_address, created_at.
+ *
+ * Auth / Login (shared: home.php, verify_2fa.php, change_password.php):
+ *   LOGIN, 2FA_FAILED, ACCOUNT_LOCKED, CHANGE_PASSWORD,
+ *   PASSWORD_RESET_REQUEST, PASSWORD_RESET
+ *
+ * Account Recovery (ajax/superadmin_recovery.php):
+ *   RECOVERY_CODE_SENT, SELF_RECOVERY_UNLOCK, UNLOCK_REQUEST_SENT, UNLOCK_APPROVED
+ *
+ * User Management (super_admin/users.php):
+ *   ADD_USER, EDIT_USER, RESET_PASSWORD, ARCHIVE_USER, BLOCK_USER,
+ *   UNLOCK_LOGIN, RESET_2FA
+ *
+ * Barangay Management (super_admin/barangays.php):
+ *   ADD_BARANGAY, EDIT_BARANGAY, ARCHIVE_BARANGAY
+ *
+ * Officials (super_admin/settings.php, super_admin/barangay_records_officials.php):
+ *   ADD_OFFICIAL, EDIT_OFFICIAL
+ *
+ * Resident Transfers (super_admin/transfer_requests.php):
+ *   APPROVE_TRANSFER, REJECT_TRANSFER, AUTO_INACTIVATE_OFFICIAL
+ *
+ * Notices (super_admin/notices.php):
+ *   ADD_NOTICE, ARCHIVE_NOTICE
+ *
+ * Reports (super_admin/reports.php, ajax/mark_manual_report_seen.php):
+ *   APPROVE_REPORT, REJECT_REPORT, DONE_REPORT, ARCHIVE_REPORT,
+ *   ARCHIVE_MANUAL_REPORT, VIEW_MANUAL_REPORT
+ *
+ * Requests (super_admin/requests.php):
+ *   APPROVE_REQUEST, REJECT_REQUEST, PROCESSING_REQUEST, DONE_REQUEST, ARCHIVE_REQUEST
+ *
+ * Settings & Security (super_admin/settings.php):
+ *   ENABLE_2FA, DISABLE_2FA, UPDATE_SETTINGS, UPDATE_PROFILE, EDIT_BARANGAY (portal info)
+ *
+ * Archive (super_admin/archive.php):
+ *   RESTORE_ARCHIVE
+ *
+ * Exports / Read actions (super_admin/export_*.php):
+ *   EXPORT_BARANGAYS, EXPORT_BARANGAY_RECORDS, EXPORT_BR_BARANGAYS,
+ *   EXPORT_BR_CERTIFICATES, EXPORT_BR_HOUSEHOLDS, EXPORT_BR_OFFICIALS,
+ *   EXPORT_BR_REPORTS, EXPORT_BR_RESIDENTS, EXPORT_BR_TRANSFERS
+ *
+ * HINDI nalo-log (hindi lalabas; barangay admin lang o walang logActivity call):
+ *   LOGOUT (logoutUser() ay login_logs lang, walang logActivity),
+ *   LOGIN_FAILED, PERMANENT_DELETE, ADD_REPORT, SUBMIT_REPORT,
+ *   DELETE_USER, DELETE_BARANGAY, DELETE_REPORT, DELETE_NOTICE, EDIT_NOTICE,
+ *   ARCHIVE_OFFICIAL, DELETE_CERTIFICATE, at lahat ng RESIDENT/HOUSEHOLD/
+ *   BLOTTER CRUD + ISSUE_CERTIFICATE (view-only ang super admin records pages).
+ */
 // 2-year retention
 $retentionDate = date('Y-m-d', strtotime('-2 years'));
 
-// Audit log for super admin shows only super_admin actions (not barangay admin actions)
+// Audit log for super admin shows all recorded super_admin actions.
 $baseWhere = "WHERE u.role = 'super_admin'
-              AND al.action IN ($placeholders)
               AND DATE(al.created_at) >= '$retentionDate'";
 
-if ($search)     $baseWhere .= " AND (al.action LIKE '%$search%' OR al.description LIKE '%$search%' OR u.email LIKE '%$search%' OR u.username LIKE '%$search%' OR u.first_name LIKE '%$search%' OR u.last_name LIKE '%$search%' OR CONCAT(u.first_name,' ',u.last_name) LIKE '%$search%' OR CONCAT(u.last_name,' ',u.first_name) LIKE '%$search%' OR CONCAT(u.last_name,', ',u.first_name) LIKE '%$search%')";
+if ($search)     $baseWhere .= " AND (al.action LIKE '%$search%' OR al.module LIKE '%$search%' OR al.description LIKE '%$search%' OR al.ip_address LIKE '%$search%' OR u.email LIKE '%$search%' OR u.username LIKE '%$search%' OR u.first_name LIKE '%$search%' OR u.last_name LIKE '%$search%' OR CONCAT(u.first_name,' ',u.last_name) LIKE '%$search%' OR CONCAT(u.last_name,' ',u.first_name) LIKE '%$search%' OR CONCAT(u.last_name,', ',u.first_name) LIKE '%$search%')";
 if ($dateFrom)   $baseWhere .= " AND DATE(al.created_at) >= '$dateFrom'";
 if ($dateTo)     $baseWhere .= " AND DATE(al.created_at) <= '$dateTo'";
 if ($userFilter) $baseWhere .= " AND al.user_id = $userFilter";
@@ -48,14 +87,14 @@ $countStmt = $db->prepare("
     LEFT JOIN users u ON al.user_id = u.id
     $baseWhere
 ");
-$countStmt->execute($auditActions);
+$countStmt->execute();
 $totalRows   = (int)$countStmt->fetchColumn();
 $totalPages  = max(1, (int)ceil($totalRows / $perPage));
 $auditPage   = min($auditPage, $totalPages);
 $offset      = ($auditPage - 1) * $perPage;
 
 $logStmt = $db->prepare("
-    SELECT al.id, al.action, al.description, al.created_at,
+    SELECT al.id, al.user_id, al.action, al.module, al.description, al.ip_address, al.created_at,
            u.first_name, u.last_name, u.username, u.email, u.role
     FROM activity_logs al
     LEFT JOIN users u ON al.user_id = u.id
@@ -63,7 +102,7 @@ $logStmt = $db->prepare("
     ORDER BY al.created_at DESC
     LIMIT $perPage OFFSET $offset
 ");
-$logStmt->execute($auditActions);
+$logStmt->execute();
 $logs = $logStmt->fetchAll();
 
 // All super_admin users for filter dropdown
@@ -94,24 +133,7 @@ $pageIcon  = 'bi-shield-lock-fill';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
-    <style>
-        .audit-pagination {
-            display: flex;
-            justify-content: center;
-            padding: 12px;
-            background: #f1f6fb;
-            border-top: 1px solid #e2e8f0;
-        }
-        .audit-pagination .page-link {
-            border-radius: 6px !important;
-            margin: 0 1px;
-            min-width: 30px;
-            text-align: center;
-            font-size: 0.78rem;
-            padding: 3px 8px;
-        }
-    </style>
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -178,7 +200,7 @@ $pageIcon  = 'bi-shield-lock-fill';
                 Audit Entries
                 <span class="badge bg-secondary ms-1" style="font-size:0.7rem;"><?= number_format($totalRows) ?></span>
             </span>
-            <span class="text-muted" style="font-size:0.72rem;">Showing CRUD operations only</span>
+            <span class="text-muted" style="font-size:0.72rem;">Showing all recorded actions</span>
         </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0" style="font-size:0.85rem;">
@@ -186,15 +208,17 @@ $pageIcon  = 'bi-shield-lock-fill';
                     <tr>
                         <th class="ps-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;width:60px;">#</th>
                         <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">User</th>
-                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Action</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Action Made</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Module</th>
                         <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">Description</th>
+                        <th class="py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;">IP Address</th>
                         <th class="pe-4 py-3" style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;white-space:nowrap;">Date &amp; Time</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (empty($logs)): ?>
                     <tr>
-                        <td colspan="5" class="text-center text-muted py-5">
+                        <td colspan="7" class="text-center text-muted py-5">
                             <i class="bi bi-shield-check" style="font-size:2.5rem;opacity:0.25;display:block;margin-bottom:10px;"></i>
                             No audit records found.
                         </td>
@@ -204,6 +228,7 @@ $pageIcon  = 'bi-shield-lock-fill';
                         $fullName = trim(($log['first_name'] ?? '') . ' ' . ($log['last_name'] ?? '')) ?: 'System';
                         $initials = strtoupper(substr($log['first_name'] ?? 'S', 0, 1) . substr($log['last_name'] ?? '', 0, 1));
                         $roleInfo = $roleLabels[$log['role'] ?? ''] ?? ['label' => 'User', 'color' => '#64748b'];
+                        $actionMade = ucwords(strtolower(str_replace('_', ' ', $log['action'])));
                     ?>
                     <tr>
                         <td class="ps-4 py-3">
@@ -216,6 +241,9 @@ $pageIcon  = 'bi-shield-lock-fill';
                                 </div>
                                 <div>
                                     <div style="font-weight:600;font-size:0.82rem;color:#1a2e1f;"><?= htmlspecialchars($fullName) ?></div>
+                                    <?php if ($log['user_id'] !== null): ?>
+                                        <div style="font-size:0.7rem;color:#64748b;">User ID: <?= (int)$log['user_id'] ?></div>
+                                    <?php endif; ?>
                                     <?php if (!empty($log['email'])): ?>
                                         <div style="font-size:0.7rem;color:#64748b;"><?= htmlspecialchars($log['email']) ?></div>
                                     <?php endif; ?>
@@ -225,12 +253,14 @@ $pageIcon  = 'bi-shield-lock-fill';
                         </td>
                         <td class="py-3" style="white-space:nowrap;">
                             <span style="font-size:0.72rem;font-weight:600;color:#1a4f7a;background:#e8f0fe;padding:3px 10px;border-radius:6px;letter-spacing:0.03em;font-family:monospace;">
-                                <?= htmlspecialchars($log['action']) ?>
+                                <?= htmlspecialchars($actionMade) ?>
                             </span>
                         </td>
+                        <td class="py-3" style="font-size:0.8rem;color:#334155;"><?= htmlspecialchars($log['module'] ?? '—') ?></td>
                         <td class="py-3" style="max-width:340px;font-size:0.8rem;color:#334155;">
                             <?= htmlspecialchars($log['description'] ?? '—') ?>
                         </td>
+                        <td class="py-3" style="font-size:0.8rem;color:#64748b;white-space:nowrap;"><?= htmlspecialchars($log['ip_address'] ?? '—') ?></td>
                         <td class="pe-4 py-3" style="white-space:nowrap;">
                             <div style="font-size:0.8rem;font-weight:600;"><?= date('M d, Y', strtotime($log['created_at'])) ?></div>
                             <div style="font-size:0.72rem;color:#94a3b8;"><?= date('h:i A', strtotime($log['created_at'])) ?></div>
@@ -246,26 +276,13 @@ $pageIcon  = 'bi-shield-lock-fill';
         $qp = $_GET; unset($qp['page']);
         $bq = http_build_query($qp);
         $bu = '?' . ($bq ? $bq . '&' : '');
-        $pageStart = max(1, $auditPage - 1);
-        $pageEnd = min($totalPages, $pageStart + 2);
-        $pageStart = max(1, $pageEnd - 2);
+        $page = (int)$auditPage;
+        $totalCount = (int)$totalRows;
+        $paginationBase = $bu;
+        $paginationAnchor = '#logs-table';
     ?>
-        <nav class="audit-pagination table-pagination mt-3" aria-label="Audit log table pagination">
-            <ul class="pagination pagination-sm mb-0">
-                <li class="page-item <?= $auditPage <= 1 ? 'disabled' : '' ?>">
-                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . max(1, $auditPage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page">&laquo;</a>
-                </li>
-                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
-                <li class="page-item <?= $pageNumber === $auditPage ? 'active' : '' ?>">
-                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $auditPage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
-                </li>
-                <?php endfor; ?>
-                <li class="page-item <?= $auditPage >= $totalPages ? 'disabled' : '' ?>">
-                    <a class="page-link" href="<?= htmlspecialchars($bu . 'page=' . min($totalPages, $auditPage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page">&raquo;</a>
-                </li>
-            </ul>
-        </nav>
     </div>
+    <?php include __DIR__ . '/../includes/pagination.php'; ?>
 
 </div><!-- /.main-content -->
 

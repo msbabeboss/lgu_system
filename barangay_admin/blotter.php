@@ -95,6 +95,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add' || $action === 'edit') {
+        $submissionToken = $_POST['blotter_submission_token'] ?? '';
+        if (!is_string($submissionToken) || !isset($_SESSION['blotter_submission_tokens'][$submissionToken])) {
+            flash('blotter', 'This case form was already submitted or has expired. Please review the case list before trying again.', 'warning');
+            redirect(BASE_URL . '/barangay_admin/blotter.php');
+        }
+        unset($_SESSION['blotter_submission_tokens'][$submissionToken]);
+
         $data = [
             'case_title'              => sanitize($_POST['case_title'] ?? ''),
             'incident_type'           => $_POST['incident_type'] ?? 'Other',
@@ -131,9 +138,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ];
 
         if ($action === 'add') {
-            $caseNum = generateCaseNumber($bid);
-            $db->prepare("INSERT INTO blotter_cases (barangay_id,case_number,case_title,incident_type,priority,complainant_id,complainant_name_manual,complainant_address,complainant_contact,complainant_gender,complainant_age,respondent_id,respondent_name_manual,respondent_address,respondent_contact,respondent_relationship,incident_date,incident_time,date_reported,location,narrative,incident_summary,detailed_narrative,status,action_taken,officer_assigned,date_of_action,settlement_agreement,settlement_date,resolution,remarks,date_closed,recorded_by,date_recorded,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-              ->execute([$bid,$caseNum,$data['case_title'],$data['incident_type'],$data['priority'],$data['complainant_id'],$data['complainant_name_manual'],$data['complainant_address'],$data['complainant_contact'],$data['complainant_gender'],$data['complainant_age'],$data['respondent_id'],$data['respondent_name_manual'],$data['respondent_address'],$data['respondent_contact'],$data['respondent_relationship'],$data['incident_date'],$data['incident_time'],$data['date_reported'],$data['location'],$data['narrative'],$data['incident_summary'],$data['detailed_narrative'],$data['status'],$data['action_taken'],$data['officer_assigned'],$data['date_of_action'],$data['settlement_agreement'],$data['settlement_date'],$data['resolution'],$data['remarks'],$data['date_closed'],$data['recorded_by'],$data['date_recorded'],$u['id']]);
+            $db->beginTransaction();
+            try {
+                $lockBarangay = $db->prepare("SELECT id FROM barangays WHERE id=? FOR UPDATE");
+                $lockBarangay->execute([$bid]);
+                if (!$lockBarangay->fetchColumn()) {
+                    throw new RuntimeException('Unable to lock the barangay record while creating a blotter case.');
+                }
+
+                $caseNum = generateCaseNumber($bid);
+                $db->prepare("INSERT INTO blotter_cases (barangay_id,case_number,case_title,incident_type,priority,complainant_id,complainant_name_manual,complainant_address,complainant_contact,complainant_gender,complainant_age,respondent_id,respondent_name_manual,respondent_address,respondent_contact,respondent_relationship,incident_date,incident_time,date_reported,location,narrative,incident_summary,detailed_narrative,status,action_taken,officer_assigned,date_of_action,settlement_agreement,settlement_date,resolution,remarks,date_closed,recorded_by,date_recorded,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+                  ->execute([$bid,$caseNum,$data['case_title'],$data['incident_type'],$data['priority'],$data['complainant_id'],$data['complainant_name_manual'],$data['complainant_address'],$data['complainant_contact'],$data['complainant_gender'],$data['complainant_age'],$data['respondent_id'],$data['respondent_name_manual'],$data['respondent_address'],$data['respondent_contact'],$data['respondent_relationship'],$data['incident_date'],$data['incident_time'],$data['date_reported'],$data['location'],$data['narrative'],$data['incident_summary'],$data['detailed_narrative'],$data['status'],$data['action_taken'],$data['officer_assigned'],$data['date_of_action'],$data['settlement_agreement'],$data['settlement_date'],$data['resolution'],$data['remarks'],$data['date_closed'],$data['recorded_by'],$data['date_recorded'],$u['id']]);
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
+            }
             $blotterId = $db->lastInsertId();
 
             foreach ($_POST['witness_name'] ?? [] as $k => $wn) {
@@ -299,6 +321,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Give each rendered form a one-time token so refreshing or double-submitting
+// the same add/edit request cannot create another case or repeat its updates.
+$tokenExpiry = time() - 3600;
+$_SESSION['blotter_submission_tokens'] = array_filter(
+    $_SESSION['blotter_submission_tokens'] ?? [],
+    static fn($createdAt) => $createdAt >= $tokenExpiry
+);
+$blotterSubmissionToken = bin2hex(random_bytes(32));
+$_SESSION['blotter_submission_tokens'][$blotterSubmissionToken] = time();
+
 // ── Filters & Pagination ─────────────────────────────────────────────────
 $search       = trim($_GET['search'] ?? '');
 $statusFilter = trim($_GET['status'] ?? '');
@@ -413,7 +445,7 @@ $pageSubtitle = 'Record and track blotter cases and complaints.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         .btn-xs { padding:2px 8px; font-size:0.75rem; }
         .priority-card { border:2px solid #dee2e6; border-radius:10px; padding:10px 16px; cursor:pointer; transition:all 0.2s; text-align:center; }
@@ -1257,6 +1289,7 @@ if (empty($allEvents)): ?>
   <form method="POST" id="blotterMainForm" enctype="multipart/form-data">
     <input type="hidden" name="action" id="bAction" value="add">
     <?= csrfField() ?>
+    <input type="hidden" name="blotter_submission_token" value="<?= htmlspecialchars($blotterSubmissionToken, ENT_QUOTES) ?>">
     <input type="hidden" name="blotter_id" id="bId">
     <!-- Complainant hidden fields synced from UI on submit -->
     <input type="hidden" name="complainant_id"          id="bComplainantId">
@@ -2318,12 +2351,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 mkH('pi_age[]',         '');
                 mkH('pi_role[]',        'Suspect');
             }
+
+            form.querySelectorAll('button[type="submit"]').forEach(button => {
+                button.disabled = true;
+            });
         });
     }
 
     // Pagination scroll
     document.querySelectorAll('.page-nav').forEach(function(link) {
         link.addEventListener('click', function(ev) {
+            if (this.closest('.table-pagination')) return;
             if (this.parentElement.classList.contains('disabled')) return;
             ev.preventDefault();
             var t = document.getElementById('logs-table');

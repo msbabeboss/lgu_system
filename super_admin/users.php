@@ -590,7 +590,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
     .user-drawer {
         position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
@@ -793,6 +793,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             </table>
         </div>
         <?php endif; ?>
+    </div>
         <?php if ($saTotal > 0): ?>
             <?php
             $page = $saPage;
@@ -808,7 +809,6 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             include __DIR__ . '/../includes/pagination.php';
             ?>
         <?php endif; ?>
-    </div>
 
     <!-- Barangay Admins Table -->
     <div style="background:#fff;border-radius:18px;box-shadow:0 2px 16px rgba(0,0,0,0.07);border:1px solid #e0f0e4;margin-bottom:20px;overflow:hidden;">
@@ -897,6 +897,7 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             </table>
         </div>
         <?php endif; ?>
+    </div>
         <?php if ($baTotal > 0): ?>
             <?php
             $page = $baPage;
@@ -912,7 +913,6 @@ $pageSubtitle = 'Manage system administrators and barangay admin accounts.';
             include __DIR__ . '/../includes/pagination.php';
             ?>
         <?php endif; ?>
-    </div>
 </div>
 
 <!-- Add User Modal -->

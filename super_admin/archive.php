@@ -134,19 +134,8 @@ $pageSubtitle = 'Inactive or removed records.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <style>
-        .archive-pagination {
-            display: flex; justify-content: center;
-            padding: 12px; background: #f1f6fb;
-            border-top: 1px solid #cbd5e1;
-        }
-        .pagination .page-link {
-            border-radius: 6px !important; margin: 0 1px; min-width: 30px;
-            text-align: center; font-size: 0.78rem; padding: 3px 8px;
-        }
-    </style>
 </head>
 <body>
 <?php include __DIR__ . '/../includes/sidebar_super.php'; ?>
@@ -407,26 +396,14 @@ function submitRestore() {
             $queryParams = $_GET;
             unset($queryParams['page']);
             $baseQuery = http_build_query($queryParams);
-            $baseUrl = '?' . ($baseQuery ? $baseQuery . '&' : '');
-            $pageStart = max(1, $archivePage - 2);
-            $pageEnd = min($totalPages, $archivePage + 2);
+            $paginationBase = '?' . ($baseQuery ? $baseQuery . '&' : '');
+            $page = (int)$archivePage;
+            $totalCount = (int)$totalRows;
+            $paginationAnchor = '#logs-table';
+            $paginationLinkClass = 'page-nav';
         ?>
-        <nav class="archive-pagination" aria-label="Archive table pagination">
-            <ul class="pagination pagination-sm mb-0">
-                <li class="page-item <?= $archivePage <= 1 ? 'disabled' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . max(1, $archivePage - 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Previous page">&laquo;</a>
-                </li>
-                <?php for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++): ?>
-                <li class="page-item <?= $pageNumber === $archivePage ? 'active' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . $pageNumber, ENT_QUOTES, 'UTF-8') ?>#logs-table" <?= $pageNumber === $archivePage ? 'aria-current="page"' : '' ?>><?= $pageNumber ?></a>
-                </li>
-                <?php endfor; ?>
-                <li class="page-item <?= $archivePage >= $totalPages ? 'disabled' : '' ?>">
-                    <a class="page-link page-nav" href="<?= htmlspecialchars($baseUrl . 'page=' . min($totalPages, $archivePage + 1), ENT_QUOTES, 'UTF-8') ?>#logs-table" aria-label="Next page">&raquo;</a>
-                </li>
-            </ul>
-        </nav>
     </div>
+    <?php include __DIR__ . '/../includes/pagination.php'; ?>
 </div>
 
 <script>
@@ -434,6 +411,7 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 
 document.querySelectorAll('.page-nav').forEach(function(link) {
     link.addEventListener('click', function(e) {
+        if (this.closest('.table-pagination')) return;
         if (this.parentElement.classList.contains('disabled')) return;
         e.preventDefault();
         var t = document.getElementById('logs-table');

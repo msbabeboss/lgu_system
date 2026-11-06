@@ -204,7 +204,6 @@ function sendBlotterFiledEmail(
     if (empty($adminEmails)) return;
     $appName   = APP_NAME;
     $year      = date('Y');
-    $loginUrl  = EMAIL_BASE_URL . '/super_admin/dashboard.php';
     $priorityColors = ['Low'=>'#2d9f50','Medium'=>'#d97706','High'=>'#c0392b','Critical'=>'#7b0000'];
     $pColor = $priorityColors[$priority] ?? '#64748b';
 
@@ -261,11 +260,6 @@ function sendBlotterFiledEmail(
               <tr><td style="padding:5px 0;color:#64748b;">Incident Date</td><td style="padding:5px 0;color:#334155;">{$dateEsc}</td></tr>
             </table>
           </div>
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr><td align="center" style="padding:0 0 16px;">
-              <a href="{$loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#7b1c1c,#c0392b);color:#fff;text-decoration:none;padding:13px 32px;border-radius:8px;font-size:0.92rem;font-weight:600;">View in Dashboard</a>
-            </td></tr>
-          </table>
         </td>
       </tr>
       <tr>
@@ -462,7 +456,6 @@ function sendTransactionLogEmail(
     $moduleEsc = htmlspecialchars($module);
     $descEsc   = htmlspecialchars($description);
     $toNameEsc = htmlspecialchars($toName);
-    $loginUrl  = $module_url ?: EMAIL_BASE_URL . '/barangay_admin/activity_log.php';
 
     $html = <<<HTML
 <!DOCTYPE html>
@@ -489,11 +482,6 @@ function sendTransactionLogEmail(
               <tr><td style="padding:4px 0;color:#64748b;vertical-align:top;">Description</td><td style="padding:4px 0;color:#334155;line-height:1.6;">{$descEsc}</td></tr>
             </table>
           </div>
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr><td align="center" style="padding:0 0 12px;">
-              <a href="{$loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#334155,#1a4f7a);color:#fff;text-decoration:none;padding:11px 28px;border-radius:8px;font-size:0.88rem;font-weight:600;">View Activity Log</a>
-            </td></tr>
-          </table>
         </td>
       </tr>
       <tr>

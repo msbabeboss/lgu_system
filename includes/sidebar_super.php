@@ -3,8 +3,11 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 $u = currentUser();
 $brSubPages   = ['barangay_records_barangays.php','barangay_records_residents.php',
                   'barangay_records_households.php','barangay_records_officials.php',
-                  'barangay_records_reports.php','barangay_records_certificates.php'];
-$brActive     = ($currentPage === 'barangay_records.php' || in_array($currentPage, $brSubPages));
+                  'barangay_records_reports.php','barangay_records_certificates.php',
+                  'barangay_records_transfers.php'];
+$brActive     = ($currentPage === 'barangay_records.php' || in_array($currentPage, $brSubPages, true));
+$analyticsPages = ['analytics.php', 'barangay_analytics.php'];
+$requestPages = ['requests.php', 'transfer_requests.php'];
 ?>
 <script>
 if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1') {
@@ -44,7 +47,7 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <i class="bi bi-cpu-fill"></i> <span class="nav-link-text">Forecasting</span>
         </a>
         <a href="<?= BASE_URL ?>/super_admin/analytics.php"
-           class="nav-link <?= $currentPage === 'analytics.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $analyticsPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Analytics">
             <i class="bi bi-bar-chart-line-fill"></i> <span class="nav-link-text">Analytics</span>
         </a>
@@ -81,7 +84,7 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <i class="bi bi-file-earmark-bar-graph-fill"></i> <span class="nav-link-text">Reports</span>
         </a>
         <a href="<?= BASE_URL ?>/super_admin/requests.php"
-           class="nav-link <?= $currentPage === 'requests.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $requestPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Requests">
             <i class="bi bi-inbox-fill"></i> <span class="nav-link-text">Requests</span>
             <?php
@@ -141,4 +144,14 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <i class="bi bi-box-arrow-right"></i>
         </button>
     </div>
+    <script>
+    (function () {
+        var nav = document.querySelector('#sidebar .sidebar-nav');
+        var savedScroll = sessionStorage.getItem('sidebarScroll');
+        if (nav && savedScroll !== null) {
+            nav.scrollTop = Number(savedScroll);
+            sessionStorage.removeItem('sidebarScroll');
+        }
+    })();
+    </script>
 </aside>

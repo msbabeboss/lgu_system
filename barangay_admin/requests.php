@@ -135,7 +135,7 @@ $pageSubtitle = 'Submit and track requests to the LGU for processing.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         .request-modal-content {
             border: 0;
@@ -432,6 +432,7 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 
 document.querySelectorAll('.page-nav').forEach(function(link) {
     link.addEventListener('click', function(e) {
+        if (this.closest('.table-pagination')) return;
         if (this.parentElement.classList.contains('disabled')) return;
         e.preventDefault();
         var t = document.getElementById('logs-table');

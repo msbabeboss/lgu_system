@@ -12,7 +12,7 @@ $pusherEnabled = defined('PUSHER_APP_ID')
     && $pusherKey !== ''
     && PUSHER_SECRET !== '';
 
-// Idle timeout settings are scoped by the signed-in user's role.
+// Idle auto-logout is configured for Super Admin accounts only.
 $_idleEnabled = '0';
 $_idleMinutes = '5';
 $_idleUnit    = 'minutes';
@@ -25,43 +25,29 @@ try {
         updated_by INT UNSIGNED NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB");
-    $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_enabled','1']);
-    $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_minutes','5']);
-    $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute(['idle_timeout_unit','minutes']);
-    $idleRole = match ($u['role'] ?? '') {
-        'super_admin' => 'super_admin',
-        'barangay_admin' => 'barangay_admin',
-        default => null,
-    };
-    if ($idleRole !== null) {
-        foreach ([
-            'enabled' => 'idle_timeout_enabled',
-            'minutes' => 'idle_timeout_minutes',
-            'unit' => 'idle_timeout_unit',
-        ] as $idlePart => $legacyKey) {
-            $db->prepare(
-                "INSERT IGNORE INTO system_settings (setting_key, setting_val)
-                 SELECT ?, setting_val FROM system_settings WHERE setting_key = ?"
-            )->execute(["idle_{$idleRole}_{$idlePart}", $legacyKey]);
+    if (($u['role'] ?? '') === 'super_admin') {
+        $idleDefaults = [
+            'idle_super_admin_enabled' => '1',
+            'idle_super_admin_minutes' => '5',
+            'idle_super_admin_unit' => 'minutes',
+        ];
+        foreach ($idleDefaults as $key => $value) {
+            $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")
+               ->execute([$key, $value]);
+        }
+        $stmt = $db->prepare(
+            "SELECT setting_key, setting_val FROM system_settings
+             WHERE setting_key IN ('idle_super_admin_enabled','idle_super_admin_minutes','idle_super_admin_unit')"
+        );
+        $stmt->execute();
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($row['setting_key'] === 'idle_super_admin_enabled') $_idleEnabled = $row['setting_val'];
+            if ($row['setting_key'] === 'idle_super_admin_minutes') $_idleMinutes = $row['setting_val'];
+            if ($row['setting_key'] === 'idle_super_admin_unit') $_idleUnit = $row['setting_val'];
         }
     }
-    $idleKeys = $idleRole === null
-        ? []
-        : ["idle_{$idleRole}_enabled", "idle_{$idleRole}_minutes", "idle_{$idleRole}_unit"];
-    if ($idleKeys) {
-        $placeholders = implode(',', array_fill(0, count($idleKeys), '?'));
-        $stmt = $db->prepare("SELECT setting_key, setting_val FROM system_settings WHERE setting_key IN ($placeholders)");
-        $stmt->execute($idleKeys);
-    } else {
-        $stmt = false;
-    }
-    foreach ($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
-        if ($row['setting_key'] === "idle_{$idleRole}_enabled") $_idleEnabled = $row['setting_val'];
-        if ($row['setting_key'] === "idle_{$idleRole}_minutes") $_idleMinutes = $row['setting_val'];
-        if ($row['setting_key'] === "idle_{$idleRole}_unit") $_idleUnit = $row['setting_val'];
-    }
 } catch (Throwable $e) {
-    error_log('[idle timeout settings] Failed to load role-specific timeout: ' . $e->getMessage());
+    error_log('[idle timeout settings] Failed to load Super Admin timeout: ' . $e->getMessage());
 }
 ?>
 <!-- CSRF meta tag — available to all fetch() calls on authenticated pages -->
@@ -496,11 +482,9 @@ function toggleSidebar() {
 // ── bfcache: prevent stale page restore that hides fixed elements ──
 window.addEventListener('pageshow', function(e) {
     if (e.persisted) {
-        // Just force a style recalc — no reload needed
-        var topbar = document.querySelector('.topbar');
-        var sidebar = document.querySelector('.sidebar');
-        if (topbar)  { topbar.style.display  = 'none'; topbar.offsetHeight;  topbar.style.display  = ''; }
-        if (sidebar) { sidebar.style.display = 'none'; sidebar.offsetHeight; sidebar.style.display = ''; }
+        // Force a layout recalc without hiding fixed navigation during history restores.
+        document.querySelector('.topbar')?.getBoundingClientRect();
+        document.querySelector('.sidebar')?.getBoundingClientRect();
     }
 });
 
@@ -517,13 +501,6 @@ function sidebarSubToggle(e, el) {
 // Save sidebar scroll position before navigating away
 document.addEventListener('DOMContentLoaded', function () {
     var nav = document.querySelector('.sidebar-nav');
-
-    // Restore scroll position first
-    var savedScroll = sessionStorage.getItem('sidebarScroll');
-    if (savedScroll !== null && nav) {
-        nav.scrollTop = parseInt(savedScroll, 10);
-        sessionStorage.removeItem('sidebarScroll');
-    }
 
     // Auto-open if a child page is active
     document.querySelectorAll('.nav-has-sub').forEach(function (wrapper) {

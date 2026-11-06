@@ -50,9 +50,9 @@ $defaults = [
     'password_require_special'=> '0',
     'login_max_attempts'      => '5',
     'session_timeout_minutes' => '60',
-    'idle_timeout_enabled'    => '1',
-    'idle_timeout_minutes'    => '5',
-    'idle_timeout_unit'       => 'minutes',
+    'idle_super_admin_enabled' => '1',
+    'idle_super_admin_minutes' => '5',
+    'idle_super_admin_unit'    => 'minutes',
     'notif_request_approved'  => '1',
     'notif_request_rejected'  => '1',
     'notif_request_done'      => '1',
@@ -66,18 +66,6 @@ $defaults = [
 ];
 foreach ($defaults as $k => $v) {
     $db->prepare("INSERT IGNORE INTO system_settings (setting_key, setting_val) VALUES (?,?)")->execute([$k, $v]);
-}
-foreach (['super_admin', 'barangay_admin'] as $idleRole) {
-    foreach ([
-        'enabled' => 'idle_timeout_enabled',
-        'minutes' => 'idle_timeout_minutes',
-        'unit' => 'idle_timeout_unit',
-    ] as $idlePart => $legacyKey) {
-        $db->prepare(
-            "INSERT IGNORE INTO system_settings (setting_key, setting_val)
-             SELECT ?, setting_val FROM system_settings WHERE setting_key = ?"
-        )->execute(["idle_{$idleRole}_{$idlePart}", $legacyKey]);
-    }
 }
 // Seed landing content row if not present
 try {
@@ -353,19 +341,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($k === 'login_max_attempts')       $val = (string)max(1, min(20, (int)$val));
             saveSetting($db, $k, $val, $u['id']);
         }
-        foreach (['super_admin', 'barangay_admin'] as $idleRole) {
-            $idlePrefix = "idle_{$idleRole}";
-            $idleUnit = in_array($_POST[$idlePrefix . '_unit'] ?? '', ['seconds', 'minutes'], true)
-                ? $_POST[$idlePrefix . '_unit'] : 'minutes';
-            $idleValue = (int)($_POST[$idlePrefix . '_minutes'] ?? 5);
-            $idleValue = $idleUnit === 'seconds'
-                ? max(10, min(300, $idleValue))
-                : max(1, min(120, $idleValue));
+        $idlePrefix = 'idle_super_admin';
+        $idleUnit = in_array($_POST[$idlePrefix . '_unit'] ?? '', ['seconds', 'minutes'], true)
+            ? $_POST[$idlePrefix . '_unit'] : 'minutes';
+        $idleValue = (int)($_POST[$idlePrefix . '_minutes'] ?? 5);
+        $idleValue = $idleUnit === 'seconds'
+            ? max(10, min(300, $idleValue))
+            : max(1, min(120, $idleValue));
 
-            saveSetting($db, $idlePrefix . '_enabled', isset($_POST[$idlePrefix . '_enabled']) ? '1' : '0', $u['id']);
-            saveSetting($db, $idlePrefix . '_minutes', (string)$idleValue, $u['id']);
-            saveSetting($db, $idlePrefix . '_unit', $idleUnit, $u['id']);
-        }
+        saveSetting($db, $idlePrefix . '_enabled', isset($_POST[$idlePrefix . '_enabled']) ? '1' : '0', $u['id']);
+        saveSetting($db, $idlePrefix . '_minutes', (string)$idleValue, $u['id']);
+        saveSetting($db, $idlePrefix . '_unit', $idleUnit, $u['id']);
 
         logActivity($u['id'], 'UPDATE_SETTINGS', 'Settings', 'Updated Security settings');
         flash('settings', 'Security settings saved.', 'success');
@@ -1203,23 +1189,19 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                     </div>
                 </div>
 
-                <?php foreach ([
-                    'super_admin' => ['Super Admin', 'Applies only to Super Admin accounts.'],
-                    'barangay_admin' => ['Barangay Admin', 'Applies to Barangay Admin accounts, independently of the Super Admin timeout.'],
-                ] as $idleRole => [$idleRoleLabel, $idleRoleDescription]):
-                    $idlePrefix = "idle_{$idleRole}";
+                <?php
+                    $idlePrefix = 'idle_super_admin';
                     $idleUnit = $s($idlePrefix . '_unit', 'minutes');
                     $idleUnit = in_array($idleUnit, ['seconds', 'minutes'], true) ? $idleUnit : 'minutes';
                     $idleValue = (int)$s($idlePrefix . '_minutes', '5');
                     $idleEnabled = $s($idlePrefix . '_enabled', '1') === '1';
-                    $idleId = $idleRole === 'super_admin' ? 'SuperAdmin' : 'BarangayAdmin';
                 ?>
                 <div class="settings-card">
                     <div class="sc-header">
                         <div class="sc-icon"><i class="bi bi-hourglass-split"></i></div>
                         <div>
-                            <h6><?= htmlspecialchars($idleRoleLabel) ?> Idle Auto-Logout</h6>
-                            <p><?= htmlspecialchars($idleRoleDescription) ?></p>
+                            <h6>Super Admin Idle Auto-Logout</h6>
+                            <p>Applies only to Super Admin accounts.</p>
                         </div>
                     </div>
                     <div class="sc-body">
@@ -1231,13 +1213,13 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                             <input type="checkbox" class="form-check-input" name="<?= $idlePrefix ?>_enabled"
                                    <?= $idleEnabled ? 'checked' : '' ?>
                                    style="width:42px;height:24px;cursor:pointer;"
-                                   onchange="document.getElementById('saIdle<?= $idleId ?>Row').style.display=this.checked?'flex':'none'">
+                                   onchange="document.getElementById('saIdleSuperAdminRow').style.display=this.checked?'flex':'none'">
                         </div>
-                        <div class="row g-3 mt-2 align-items-end" id="saIdle<?= $idleId ?>Row"
+                        <div class="row g-3 mt-2 align-items-end" id="saIdleSuperAdminRow"
                              style="display:<?= $idleEnabled ? 'flex' : 'none' ?>">
                             <div class="col-md-4">
                                 <label class="form-label fw-semibold small">Idle Timeout After</label>
-                                <input type="number" name="<?= $idlePrefix ?>_minutes" id="saIdle<?= $idleId ?>Value"
+                                <input type="number" name="<?= $idlePrefix ?>_minutes" id="saIdleSuperAdminValue"
                                        class="form-control" value="<?= $idleValue ?>"
                                        min="<?= $idleUnit === 'seconds' ? 10 : 1 ?>"
                                        max="<?= $idleUnit === 'seconds' ? 300 : 120 ?>"
@@ -1245,14 +1227,14 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label fw-semibold small">Unit</label>
-                                <select name="<?= $idlePrefix ?>_unit" id="saIdle<?= $idleId ?>Unit" class="form-select"
-                                        onchange="saIdleUnitChanged('<?= $idleId ?>', this.value)">
+                                <select name="<?= $idlePrefix ?>_unit" id="saIdleSuperAdminUnit" class="form-select"
+                                        onchange="saIdleUnitChanged(this.value)">
                                     <option value="seconds" <?= $idleUnit === 'seconds' ? 'selected' : '' ?>>Seconds</option>
                                     <option value="minutes" <?= $idleUnit === 'minutes' ? 'selected' : '' ?>>Minutes</option>
                                 </select>
                             </div>
                             <div class="col-12">
-                                <div class="form-text" id="saIdle<?= $idleId ?>Hint">
+                                <div class="form-text" id="saIdleSuperAdminHint">
                                     <?= $idleUnit === 'seconds'
                                         ? '10–300 seconds (e.g. 30 = 30 seconds)'
                                         : '1–120 minutes (e.g. 5 = 5 minutes)' ?>
@@ -1261,11 +1243,10 @@ $pageSubtitle = 'Manage system configuration and preferences.';
                         </div>
                     </div>
                 </div>
-                <?php endforeach; ?>
                 <script>
-                function saIdleUnitChanged(role, unit) {
-                    var input = document.getElementById('saIdle' + role + 'Value');
-                    var hint  = document.getElementById('saIdle' + role + 'Hint');
+                function saIdleUnitChanged(unit) {
+                    var input = document.getElementById('saIdleSuperAdminValue');
+                    var hint  = document.getElementById('saIdleSuperAdminHint');
                     if (unit === 'seconds') {
                         input.min = 10; input.max = 300;
                         if (parseInt(input.value) < 10)  input.value = 30;

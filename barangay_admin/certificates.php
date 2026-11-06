@@ -187,19 +187,8 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
-        .certificates-table-card .table-pagination {
-            margin-top: 0 !important;
-            padding: 8px 12px;
-            background: #fff;
-            border-top: 0;
-        }
-
-        html.dark-mode .certificates-table-card .table-pagination {
-            background: #0f1f35;
-        }
-
         #certDesignerOverlay.cert-view-mode .designer-main-row {
             display: block;
         }
@@ -365,12 +354,12 @@ $pageSubtitle = 'Issue and manage barangay certificates and clearances.';
                 </tbody>
             </table>
         </div>
-        <?php
+    </div>
+    <?php
         $paginationBase = '?' . http_build_query(array_filter(['search'=>$search,'type'=>$typeFilter]));
         $paginationBase = ($paginationBase === '?') ? '?' : $paginationBase . '&';
-        ?>
-        <?php $paginationLabel = 'certificate'; include __DIR__ . '/../includes/pagination.php'; ?>
-    </div>
+    ?>
+    <?php $paginationLabel = 'certificate'; include __DIR__ . '/../includes/pagination.php'; ?>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════

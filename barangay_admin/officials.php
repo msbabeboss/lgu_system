@@ -306,7 +306,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         /* ── Officials modal shared styles ── */
         .off-field-label {
@@ -574,7 +574,7 @@ $pageSubtitle = 'Manage elected and appointed officials of your barangay.';
         $baseQuery   = http_build_query($queryParams);
         $baseUrl     = '?' . ($baseQuery ? $baseQuery . '&' : '');
     ?>
-    <?php $page = $currentPage; $totalCount = $totalRows; $offset = $listOffset; $paginationBase = $baseUrl; $paginationLabel = 'official'; include __DIR__ . '/../includes/pagination.php'; ?>
+<?php $page = $currentPage; $totalCount = $totalRows; $offset = $listOffset; $paginationBase = $baseUrl; $paginationLabel = 'official'; include __DIR__ . '/../includes/pagination.php'; ?>
 </div>
 
 <!-- Add/Edit Official Modal -->
@@ -1409,6 +1409,7 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 
 document.querySelectorAll('.page-nav').forEach(function(link) {
     link.addEventListener('click', function(e) {
+        if (this.closest('.table-pagination')) return;
         if (this.parentElement.classList.contains('disabled')) return;
         e.preventDefault();
         var t = document.getElementById('logs-table');

@@ -402,7 +402,7 @@ $pageSubtitle = 'Residents approved by LGU to transfer into your barangay.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         .status-badge-orange { background-color:#fd7e14; color:#fff; }
         .doc-item { display:flex; align-items:center; gap:10px; padding:10px 14px;

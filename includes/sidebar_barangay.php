@@ -1,7 +1,11 @@
 <?php
 $currentPage = basename($_SERVER['PHP_SELF']);
 $u = currentUser();
-$settingsOpen = in_array($currentPage, ['settings.php']);
+$residentPages = ['residents.php', 'add_resident.php', 'edit_resident.php', 'view_resident.php'];
+$householdPages = ['households.php', 'add_household.php', 'edit_household.php'];
+$officialPages = ['officials.php'];
+$certificatePages = ['certificates.php', 'issue_certificate.php', 'print_certificate.php'];
+$requestPages = ['requests.php', 'incoming_transfers.php', 'transfer_requests.php'];
 ?>
 <script>
 if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1') {
@@ -43,24 +47,24 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
 
         <div class="nav-section-title">Records</div>
         <a href="<?= BASE_URL ?>/barangay_admin/residents.php"
-           class="nav-link <?= $currentPage === 'residents.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $residentPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Residents">
             <i class="bi bi-people-fill"></i> <span class="nav-link-text">Residents</span>
         </a>
         <a href="<?= BASE_URL ?>/barangay_admin/households.php"
-           class="nav-link <?= $currentPage === 'households.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $householdPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Households">
             <i class="bi bi-house-door-fill"></i> <span class="nav-link-text">Households</span>
         </a>
         <a href="<?= BASE_URL ?>/barangay_admin/officials.php"
-           class="nav-link <?= $currentPage === 'officials.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $officialPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Officials">
             <i class="bi bi-person-badge-fill"></i> <span class="nav-link-text">Officials</span>
         </a>
 
         <div class="nav-section-title">Services</div>
         <a href="<?= BASE_URL ?>/barangay_admin/certificates.php"
-           class="nav-link <?= $currentPage === 'certificates.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $certificatePages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Certificates">
             <i class="bi bi-file-earmark-text-fill"></i> <span class="nav-link-text">Certificates</span>
         </a>
@@ -97,7 +101,7 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <i class="bi bi-archive-fill"></i> <span class="nav-link-text">Archive</span>
         </a>
         <a href="<?= BASE_URL ?>/barangay_admin/requests.php"
-           class="nav-link <?= $currentPage === 'requests.php' ? 'active' : '' ?>"
+           class="nav-link <?= in_array($currentPage, $requestPages, true) ? 'active' : '' ?>"
            data-bs-toggle="tooltip" data-bs-placement="right" title="Requests">
             <i class="bi bi-inbox-fill"></i> <span class="nav-link-text">Requests</span>
             <?php
@@ -154,4 +158,14 @@ if (window.innerWidth >= 769 && localStorage.getItem('sidebarCollapsed') === '1'
             <i class="bi bi-box-arrow-right"></i>
         </button>
     </div>
+    <script>
+    (function () {
+        var nav = document.querySelector('#sidebar .sidebar-nav');
+        var savedScroll = sessionStorage.getItem('sidebarScroll');
+        if (nav && savedScroll !== null) {
+            nav.scrollTop = Number(savedScroll);
+            sessionStorage.removeItem('sidebarScroll');
+        }
+    })();
+    </script>
 </aside>

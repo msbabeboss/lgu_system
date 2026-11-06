@@ -21,7 +21,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS notice_dismissals (
 // ── Fetch ──────────────────────────────────────────────────
 $filterType = sanitize($_GET['type']   ?? '');
 $search     = sanitize($_GET['search'] ?? '');
-$perPage    = 15;
+$perPage    = 10;
 $page       = max(1, (int)($_GET['page'] ?? 1));
 
 $where  = "FROM notices n
@@ -67,7 +67,7 @@ $typeConfig = [
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         /* ── Email-client split layout ─────────────────────── */
         .notices-shell {
@@ -334,7 +334,7 @@ $typeConfig = [
                 $qBase = ($qBase === '?') ? '?' : $qBase . '&';
             ?>
             <div style="padding:8px 12px;border-top:1px solid #e2eaf2;background:#fff;flex-shrink:0;">
-                <?php $paginationBase = $qBase; $paginationLabel = 'announcement'; include __DIR__ . '/../includes/pagination.php'; ?>
+                <?php $paginationBase = $qBase; $paginationLabel = 'announcement'; $paginationContainerSelector = '.notices-shell'; include __DIR__ . '/../includes/pagination.php'; ?>
             </div>
         </div>
 

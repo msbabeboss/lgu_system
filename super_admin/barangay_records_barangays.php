@@ -9,7 +9,7 @@ $u  = currentUser();
 $search       = trim(strip_tags($_GET['search'] ?? ''));
 $statusFilter = trim(strip_tags($_GET['status'] ?? ''));
 $sort         = trim(strip_tags($_GET['sort']   ?? 'name'));
-$perPage      = 20;
+$perPage      = 10;
 $page         = max(1, (int)($_GET['page'] ?? 1));
 
 // Build WHERE
@@ -56,7 +56,7 @@ $pageSubtitle = 'All registered barangays with summary counts.';
     <title><?= $pageTitle ?> — <?= APP_NAME ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.3">
+    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css?v=3.5">
     <style>
         @media print { .sidebar, .topbar, .no-print { display:none; } .main-content { margin:0; } }
     </style>
@@ -171,13 +171,12 @@ $pageSubtitle = 'All registered barangays with summary counts.';
         </div>
     </div>
 
-</div><!-- /main-content -->
-
 <?php
 $paginationBase  = '?' . http_build_query(array_filter(['search'=>$search,'status'=>$statusFilter,'sort'=>$sort])) . '&';
 $paginationLabel = 'barangay';
 include __DIR__ . '/../includes/pagination.php';
 ?>
+</div><!-- /main-content -->
 
 <!-- View Details Modal -->
 <div class="modal fade" id="viewBrgyModal" tabindex="-1">
