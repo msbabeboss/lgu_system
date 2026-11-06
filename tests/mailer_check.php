@@ -16,11 +16,9 @@ require_once __DIR__ . '/../helpers/mailer.php';
  *     or empty adminEmails, so calling them with empty input must return without
  *     throwing — and without reaching sendMail() (no network call).
  *
- * buildResetEmailHtml interpolates $name and $resetUrl RAW (no htmlspecialchars),
- * so a script payload in the name appears UNESCAPED in the output. That is the
- * function's real behavior; per instructions we assert what the code actually
- * does and document the raw interpolation rather than asserting it is escaped.
- * Production code is not modified here.
+ * buildResetEmailHtml HTML-escapes $name via htmlspecialchars before placing it
+ * into the email (security fix); $resetUrl is interpolated raw because it is
+ * system-generated (EMAIL_BASE_URL + a hex token), so it is safe and left as-is.
  *
  * @return int Number of failed assertions in this suite.
  */
@@ -36,18 +34,23 @@ function runMailerSuite(): int
     check(str_contains($html, '30 minutes'), 'buildResetEmailHtml contains the expiry minutes');
     check(str_contains($html, 'Password Reset'), "buildResetEmailHtml contains 'Password Reset'");
 
-    // ── buildResetEmailHtml — name is interpolated RAW (current behavior) ──
-    // The function does NOT htmlspecialchars() the name; it is placed directly
-    // into <strong>{$name}</strong>. So a script payload survives unescaped.
-    // We assert this real behavior (do not modify production code).
+    // ── buildResetEmailHtml — name is HTML-escaped (security) ────────────
+    // The function now htmlspecialchars()s the name before placing it into
+    // <strong>{$nameEsc}</strong>, so a script payload must NOT survive as a
+    // live tag — the < and > are escaped to &lt; and &gt;.
     $payload = '<script>alert(1)</script>';
     $htmlXss = buildResetEmailHtml($payload, 'https://example.com/reset', '60');
     check(
-        str_contains($htmlXss, $payload),
-        'buildResetEmailHtml interpolates the name raw — script payload appears unescaped (current behavior)'
+        !str_contains($htmlXss, $payload),
+        'buildResetEmailHtml HTML-escapes the name — script payload does not appear as a live tag'
     );
-    // NOTE: the reset URL is likewise interpolated raw into href="{$resetUrl}"
-    // and the "copy/paste" line; documented here, not asserted as escaped.
+    check(
+        str_contains($htmlXss, '&lt;script&gt;'),
+        'buildResetEmailHtml escapes the script payload to HTML entities'
+    );
+    // NOTE: the reset URL is interpolated raw into href="{$resetUrl}" and the
+    // "copy/paste" line; it is system-generated (EMAIL_BASE_URL + hex token) so
+    // it is safe and left unescaped.
 
     // ── send* guards — empty input must early-return without sending ──────
     // Each function's first line guards on empty toEmail / empty adminEmails

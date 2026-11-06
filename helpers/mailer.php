@@ -55,6 +55,7 @@ function buildResetEmailHtml(string $name, string $resetUrl, string $expiryMinut
 {
     $appName = APP_NAME;
     $year    = date('Y');
+    $nameEsc = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
     return <<<HTML
 <!DOCTYPE html>
 <html>
@@ -72,7 +73,7 @@ function buildResetEmailHtml(string $name, string $resetUrl, string $expiryMinut
       </tr>
       <tr>
         <td style="padding:36px 40px;">
-          <p style="color:#1a2e1f;font-size:1rem;margin:0 0 16px;">Hello, <strong>{$name}</strong>,</p>
+          <p style="color:#1a2e1f;font-size:1rem;margin:0 0 16px;">Hello, <strong>{$nameEsc}</strong>,</p>
           <p style="color:#2a5070;font-size:0.9rem;line-height:1.7;margin:0 0 24px;">
             We received a request to reset the password for your account. Click the button below to set a new password.
             This link will expire in <strong>{$expiryMinutes} minutes</strong>.
