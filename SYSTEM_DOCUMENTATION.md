@@ -1092,6 +1092,8 @@ Then: Poll every 1 second for up to 8 seconds
 
 ## 9. Real-Time Notifications (Pusher)
 
+For the Filipino setup guide, code locations, and step-by-step flow, see [REALTIME_NOTIFICATIONS.md](./REALTIME_NOTIFICATIONS.md).
+
 ### Configuration
 
 All credentials loaded from `.env`:
@@ -1102,7 +1104,7 @@ PUSHER_SECRET=
 PUSHER_CLUSTER=mt1
 ```
 
-If any of `APP_ID`, `KEY`, or `SECRET` are empty, **all Pusher features gracefully degrade** — no error is thrown.
+If the App ID, Key, or Secret is empty, the topbar does not load the Pusher JavaScript client and the server skips the live push. The notification is still stored in the database and appears on the next page load.
 
 ### Server Side (`helpers/pusher.php`)
 
@@ -1110,16 +1112,16 @@ If any of `APP_ID`, `KEY`, or `SECRET` are empty, **all Pusher features graceful
 getPusher(): ?\Pusher\Pusher
 // Singleton. Returns null if not configured.
 
-pushNotification(int $userId, int $notifId, string $message, string $type, string $createdAt): void
+pushNotification(int $userId, int $notifId, string $message, string $type, string $createdAt, string $category = 'system', string $actorEmail = '', string $actorName = '', string $actorBarangay = ''): void
 // Triggers event 'new-notification' on channel 'private-user-{userId}'
-// Payload: { id, message, type, created_at }
+// Payload also includes category and available actor metadata.
 ```
 
 ### Notification Flow
 
 ```
-sendNotification($userId, $message, $type)  ← functions.php
-  → INSERT INTO notifications (user_id, message, type)
+sendNotification($userId, $message, $type, $category)  ← functions.php
+  → INSERT INTO notifications (user_id, message, type, category, actor metadata)
   → pushNotification($userId, ...)  ← pusher.php
     → $pusher->trigger("private-user-{$userId}", "new-notification", [...])
 ```
@@ -1127,27 +1129,22 @@ sendNotification($userId, $message, $type)  ← functions.php
 ### Channel Authentication (`ajax/pusher_auth.php`)
 
 Pusher requires server-side auth for private channels. The endpoint:
-1. Verifies `isLoggedIn()` 
-2. Confirms the channel matches the logged-in user's ID
+1. Verifies the user is logged in.
+2. Confirms the channel matches the logged-in user's ID.
 3. Returns the signed auth token
 
 ### Client Side (`includes/topbar.php`)
 
-When `PUSHER_KEY` is configured:
+When the App ID, Key, and Secret are configured, `topbar.php` subscribes to the current user's private channel:
 ```javascript
-Pusher.logToConsole = false;
-const pusher = new Pusher(PUSHER_KEY, { cluster: PUSHER_CLUSTER, authEndpoint: '/ajax/pusher_auth.php' });
-const channel = pusher.subscribe('private-user-' + userId);
-
-channel.bind('new-notification', function(data) {
-    prependNotif(data);        // inject DOM element at top of dropdown
-    unreadCount++;
-    refreshBadge();            // update bell badge count
-    bell.classList.add('notif-bell-pulse');  // animate bell
-    // Browser Notification API (if permission granted)
-    new Notification('New Notification', { body: data.message });
+const pusher = new Pusher(publicKey, {
+    cluster: cluster,
+    authEndpoint: appBaseUrl + '/ajax/pusher_auth.php'
 });
+const channel = pusher.subscribe('private-user-' + userId);
+channel.bind('new-notification', data => prependNotif(data));
 ```
+`prependNotif()` inserts the item in the dropdown, updates the badge, displays a toast and animates the bell. It also uses the browser Notification API if permission was granted.
 
 ### Notification Triggers in the System
 

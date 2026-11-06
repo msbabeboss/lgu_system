@@ -1,9 +1,76 @@
 # Realtime Notification System — LGU System
 ## Talavera LGU Information Management System
 
-> **Technology:** [Pusher](https://pusher.com/) (hosted WebSocket service, `ap1` cluster)  
-> **Scope:** Both roles — `super_admin` and `barangay_admin`  
-> **Last audited:** 2026-11-03
+> **Technology:** [Pusher](https://pusher.com/) Channels (hosted WebSocket service; cluster is configurable)
+> **Scope:** Both roles — `super_admin` and `barangay_admin`
+> **Last audited:** 2026-11-06
+
+## Paliwanag sa Filipino — saan ginagamit at paano
+
+Ang system ay gumagamit ng **Pusher Channels** bilang hosted WebSocket service. Hindi ito sariling WebSocket server: ang PHP app ang nagpapadala ng event sa Pusher gamit ang server-side credentials, at ang browser ay kumokonekta sa Pusher para makatanggap nito agad. Nananatili rin sa MySQL ang bawat notification, kaya makikita pa rin ito sa bell kapag hindi available o hindi naka-configure ang Pusher.
+
+### Mga file at tungkulin
+
+| File | Gamit |
+|---|---|
+| `config/config.php` | Binabasa ang Pusher settings mula sa `.env` at nilo-load ang Composer SDK. |
+| `helpers/functions.php` | `sendNotification()` ang pangunahing function: nagsi-save muna sa `notifications`, saka tinatawag ang real-time push. |
+| `helpers/pusher.php` | Gumagawa ng Pusher client at nagpapadala ng `new-notification` event sa private channel ng recipient. |
+| `includes/topbar.php` | Naglo-load ng Pusher JavaScript SDK kapag kumpleto ang credentials; nag-a-update ng bell, listahan, toast, at optional browser notification. Kasama ito sa pages ng parehong admin role. |
+| `ajax/pusher_auth.php` | Nagpapatunay na naka-login ang user at sarili lang niyang `private-user-{id}` channel ang puwede niyang salihan. |
+| `ajax/mark_notifications_read.php` | Minamarkahang nabasa ang notifications ng kasalukuyang user; hiwalay ito sa pagtanggap ng real-time event. |
+| `ajax/send_notice_notifications.php` | Isang halimbawa ng workflow na nagpapadala ng announcement notifications sa mga barangay admin. |
+
+### Daloy ng notification
+
+1. Tumatawag ang isang PHP action sa `sendNotification($userId, $message, $type, $category)`.
+2. Ini-insert muna ang notification sa database para manatili ito kahit offline ang recipient.
+3. Tinatawag ng `sendNotification()` ang `pushNotification()` sa `helpers/pusher.php`.
+4. Ipinapadala ng PHP SDK ang `new-notification` event sa `private-user-{userId}` channel sa Pusher.
+5. Ang browser ng recipient ay tumatanggap ng event sa `includes/topbar.php`; ina-update nito ang bell badge/list, nagpapakita ng toast at nagpa-pulse ng bell. Lalabas lang ang browser notification kung pinayagan ng user ang browser permission.
+
+### Pag-configure
+
+1. Gumawa o pumili ng Pusher Channels app at kunin ang App ID, Key, Secret, at Cluster mula sa Pusher dashboard.
+2. Ilagay ang mga value sa `.env` sa root ng project. Huwag ilagay ang Secret sa JavaScript o i-commit ang `.env`.
+
+   ```dotenv
+   PUSHER_APP_ID=your_app_id
+   PUSHER_KEY=your_public_key
+   PUSHER_SECRET=your_secret
+   PUSHER_CLUSTER=your_cluster
+   ```
+
+3. Dapat eksaktong tumugma ang `PUSHER_CLUSTER` sa cluster ng Pusher app. Ang default ng code kapag walang value ay `mt1`; palitan ito kung ibang cluster ang ipinakita ng dashboard.
+4. Tiyaking naka-install ang Composer dependencies (`composer install`), kabilang ang `pusher/pusher-php-server`.
+5. Mag-sign out at mag-sign in muli o i-reload ang app pagkatapos baguhin ang `.env`.
+
+Kapag walang laman ang alinman sa App ID, Key, o Secret, hindi ilo-load ng topbar ang Pusher browser client at hindi magpapadala ng live event. Patuloy pa ring mase-save sa database ang notification at lalabas ito sa susunod na page load. Hindi kailangang magpatakbo ng sariling WebSocket server.
+
+### Paano gamitin sa bagong PHP action
+
+Pagkatapos makumpirma ang recipient, tawagin ang shared helper sa halip na mag-trigger ng Pusher mula mismo sa bawat page:
+
+```php
+sendNotification(
+    $recipientId,
+    'May bagong kahilingan na kailangan mong suriin.',
+    'info',
+    'transaction'
+);
+```
+
+`$recipientId` ang user ID mula sa `users`; `type` ang visual style (`info`, `success`, `warning`, `danger`); at `category` ang uri (`system`, `resident`, `certificate`, `announcement`, `transaction`). Ang `sendNotification()` ang bahala sa database insert at Pusher push. Ipadala lang ang notification sa user o users na dapat makatanggap nito.
+
+### Paano subukan
+
+1. I-configure ang `.env` gamit ang aktuwal na credentials ng Pusher app.
+2. Magbukas ng dalawang browser session: isa para sa nagpapadalang admin at isa para sa recipient.
+3. Gawin ang action na tumatawag sa `sendNotification()` (halimbawa, magpadala ng notice mula sa Super Admin).
+4. Dapat lumitaw agad ang notification sa recipient nang hindi nire-refresh ang page.
+5. Kung hindi ito lumitaw, tingnan ang browser console/network para sa Pusher connection o authorization error, ang PHP error log para sa `[Pusher] trigger failed`, at tiyaking tugma ang App ID, Key, Secret, Cluster at naka-login ang recipient.
+
+Hindi ipinapadala ang Pusher Secret sa browser. Ang private-channel authorization sa `ajax/pusher_auth.php` ay pumipigil sa user na mag-subscribe sa channel ng ibang user.
 
 ---
 
@@ -90,7 +157,7 @@ define('PUSHER_SECRET',  $_ENV['PUSHER_SECRET']  ?? '');
 define('PUSHER_CLUSTER', $_ENV['PUSHER_CLUSTER'] ?? 'mt1');
 ```
 
-> ⚠️ The fallback cluster is `mt1` (US-East). Always set `PUSHER_CLUSTER=ap1` in `.env` or the cluster will be wrong on a fresh install.
+The fallback cluster is `mt1`; set `PUSHER_CLUSTER` to the exact cluster shown in the Pusher dashboard if the app uses another cluster.
 
 ### SDK Instantiation (`helpers/pusher.php`)
 
@@ -123,9 +190,9 @@ sendNotification(
 );
 ```
 
-1. Inserts a row into `notifications`.
-2. Selects the new row back to get the full record.
-3. Calls `pushNotification($userId, $notificationRow)`.
+1. Inserts a row into `notifications` (with available actor metadata).
+2. Gets the inserted row ID and timestamp.
+3. Calls `pushNotification($userId, $notifId, $message, $type, $createdAt, $category, ...)`.
 
 ### Fan-out Helpers
 
@@ -178,14 +245,14 @@ channel.bind('new-notification', function (data) {
 
 ### Initial Load (Server-Side)
 
-When the page first loads, topbar.php calls two PHP functions to pre-populate the dropdown **before** any WebSocket messages arrive:
+When the page first loads, `includes/topbar.php` calls two PHP functions to pre-populate the dropdown **before** any WebSocket messages arrive:
 
 ```php
-$unreadCount = countUnreadNotifications($u['id']);
-$notifications = getAllNotifications($u['id'], 15);
+$notifCount = countUnreadNotifications($u['id']);
+$notifications = getAllNotifications($u['id'], 50);
 ```
 
-These render the bell badge and the first 15 notifications synchronously in HTML.
+These render the bell badge and up to 50 notifications synchronously in HTML.
 
 ---
 

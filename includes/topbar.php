@@ -6,7 +6,11 @@ $notifications = getAllNotifications($u['id'], 50);
 // Pusher JS config — passed to the client safely (public key + cluster only)
 $pusherKey     = defined('PUSHER_KEY')     ? PUSHER_KEY     : '';
 $pusherCluster = defined('PUSHER_CLUSTER') ? PUSHER_CLUSTER : 'mt1';
-$pusherEnabled = $pusherKey !== '';
+$pusherEnabled = defined('PUSHER_APP_ID')
+    && defined('PUSHER_SECRET')
+    && PUSHER_APP_ID !== ''
+    && $pusherKey !== ''
+    && PUSHER_SECRET !== '';
 
 // Idle timeout settings are scoped by the signed-in user's role.
 $_idleEnabled = '0';
