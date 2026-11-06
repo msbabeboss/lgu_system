@@ -1,76 +1,16 @@
 <?php
 
-require_once __DIR__ . '/../helpers/functions.php';
+require_once __DIR__ . '/test_helpers.php';
 
-$failures = [];
-$passed = 0;
-
-function check(bool $condition, string $message): void
-{
-    global $failures, $passed;
-
-    if ($condition) {
-        $passed++;
-        echo "[PASS] {$message}\n";
-        return;
-    }
-
-    $failures[] = $message;
-    echo "[FAIL] {$message}\n";
-}
-
+/**
+ * Reset the request superglobals used by the CSRF helpers between assertions.
+ */
 function resetCsrfRequest(array $session = [], array $post = [], array $server = []): void
 {
     $_SESSION = $session;
     $_POST = $post;
     $_SERVER = $server;
 }
-
-resetCsrfRequest();
-$token = generateCsrfToken();
-check((bool) preg_match('/\A[a-f0-9]{64}\z/', $token), 'Token is 64 lowercase hexadecimal characters');
-check(generateCsrfToken() === $token, 'Token remains stable during the same session');
-
-resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => $token]);
-check(verifyCsrfToken(), 'Matching form token is accepted');
-
-resetCsrfRequest(['csrf_token' => $token]);
-check(!verifyCsrfToken(), 'Missing token is rejected');
-
-resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => str_repeat('0', 64)]);
-check(!verifyCsrfToken(), 'Incorrect form token is rejected');
-
-resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => ['malformed']]);
-check(!verifyCsrfToken(), 'Array-valued form token is rejected without a type error');
-
-resetCsrfRequest(['csrf_token' => 'malformed'], ['csrf_token' => 'malformed']);
-check(!verifyCsrfToken(), 'Malformed session token is rejected');
-
-resetCsrfRequest(['csrf_token' => $token], [], ['HTTP_X_CSRF_TOKEN' => $token]);
-check(verifyCsrfToken(), 'Matching X-CSRF-Token header is accepted when no form token is sent');
-
-resetCsrfRequest(
-    ['csrf_token' => $token],
-    ['csrf_token' => str_repeat('0', 64)],
-    ['HTTP_X_CSRF_TOKEN' => $token]
-);
-check(!verifyCsrfToken(), 'Incorrect form token is not overridden by a valid header');
-
-resetCsrfRequest(['csrf_token' => ['malformed']]);
-$replacementToken = generateCsrfToken();
-check(
-    (bool) preg_match('/\A[a-f0-9]{64}\z/', $replacementToken),
-    'Malformed session token is replaced with a valid token'
-);
-
-resetCsrfRequest(['csrf_token' => $token]);
-$field = csrfField();
-check(
-    str_contains($field, 'type="hidden"')
-        && str_contains($field, 'name="csrf_token"')
-        && str_contains($field, htmlspecialchars($token, ENT_QUOTES, 'UTF-8')),
-    'csrfField() renders the session token in an escaped hidden input'
-);
 
 function collectPhpFiles(string $root): array
 {
@@ -142,87 +82,145 @@ function inspectPhpFile(string $source): array
     ];
 }
 
-$root = dirname(__DIR__);
-$inventory = [];
-foreach (collectPhpFiles($root) as $path => $source) {
-    if ($path === 'helpers\\functions.php' || $path === 'helpers/functions.php') {
-        continue;
+/**
+ * Run the CSRF behavior checks and the static source inventory.
+ *
+ * @param bool $writeReport When true, regenerate _csrf_reference/COVERAGE.md.
+ * @return int Number of failed assertions in this suite.
+ */
+function runCsrfSuite(bool $writeReport = false): int
+{
+    // ── Behavior checks ───────────────────────────────────────────────────
+    resetCsrfRequest();
+    $token = generateCsrfToken();
+    check((bool) preg_match('/\A[a-f0-9]{64}\z/', $token), 'Token is 64 lowercase hexadecimal characters');
+    check(generateCsrfToken() === $token, 'Token remains stable during the same session');
+
+    resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => $token]);
+    check(verifyCsrfToken(), 'Matching form token is accepted');
+
+    resetCsrfRequest(['csrf_token' => $token]);
+    check(!verifyCsrfToken(), 'Missing token is rejected');
+
+    resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => str_repeat('0', 64)]);
+    check(!verifyCsrfToken(), 'Incorrect form token is rejected');
+
+    resetCsrfRequest(['csrf_token' => $token], ['csrf_token' => ['malformed']]);
+    check(!verifyCsrfToken(), 'Array-valued form token is rejected without a type error');
+
+    resetCsrfRequest(['csrf_token' => 'malformed'], ['csrf_token' => 'malformed']);
+    check(!verifyCsrfToken(), 'Malformed session token is rejected');
+
+    resetCsrfRequest(['csrf_token' => $token], [], ['HTTP_X_CSRF_TOKEN' => $token]);
+    check(verifyCsrfToken(), 'Matching X-CSRF-Token header is accepted when no form token is sent');
+
+    resetCsrfRequest(
+        ['csrf_token' => $token],
+        ['csrf_token' => str_repeat('0', 64)],
+        ['HTTP_X_CSRF_TOKEN' => $token]
+    );
+    check(!verifyCsrfToken(), 'Incorrect form token is not overridden by a valid header');
+
+    resetCsrfRequest(['csrf_token' => ['malformed']]);
+    $replacementToken = generateCsrfToken();
+    check(
+        (bool) preg_match('/\A[a-f0-9]{64}\z/', $replacementToken),
+        'Malformed session token is replaced with a valid token'
+    );
+
+    resetCsrfRequest(['csrf_token' => $token]);
+    $field = csrfField();
+    check(
+        str_contains($field, 'type="hidden"')
+            && str_contains($field, 'name="csrf_token"')
+            && str_contains($field, htmlspecialchars($token, ENT_QUOTES, 'UTF-8')),
+        'csrfField() renders the session token in an escaped hidden input'
+    );
+
+    // ── Static source inventory (review each route; this does not send requests) ──
+    $root = dirname(__DIR__);
+    $inventory = [];
+    foreach (collectPhpFiles($root) as $path => $source) {
+        if ($path === 'helpers\\functions.php' || $path === 'helpers/functions.php') {
+            continue;
+        }
+
+        $inspection = inspectPhpFile($source);
+        if ($inspection['has_server_post'] || $inspection['has_client_post'] || $inspection['post_forms'] > 0) {
+            $inventory[$path] = $inspection;
+        }
     }
 
-    $inspection = inspectPhpFile($source);
-    if ($inspection['has_server_post'] || $inspection['has_client_post'] || $inspection['post_forms'] > 0) {
-        $inventory[$path] = $inspection;
+    $lines = [
+        '# CSRF static source inventory',
+        '',
+        'Generated by `php tests/csrf_check.php --write-report`. This is a source scan, not proof that each action is protected; review routes and run the staging procedure in [CSRF_DOCUMENTATION.md](./CSRF_DOCUMENTATION.md).',
+        '',
+        '| PHP file | Server POST code | Client POST call | CSRF guard reference | Literal POST forms |',
+        '|---|---|---|---|---|',
+    ];
+
+    foreach ($inventory as $path => $inspection) {
+        $server = $inspection['has_server_post'] ? 'yes' : 'no';
+        $client = $inspection['has_client_post'] ? 'yes' : 'no';
+        $guard = $inspection['has_guard'] ? 'helper found' : 'not found';
+        $forms = $inspection['post_forms'] === 0
+            ? 'none found'
+            : sprintf(
+                '%d/%d inline token refs',
+                $inspection['forms_with_token'],
+                $inspection['post_forms']
+            );
+
+        if ($inspection['post_forms'] > 0 && $inspection['forms_missing_token'] > 0 && $inspection['has_dynamic_token']) {
+            $forms .= '; dynamic token ref also found (manual check)';
+        }
+
+        $markdownPath = str_replace('\\', '/', $path);
+        $lines[] = sprintf('| `%s` | %s | %s | %s | %s |', $markdownPath, $server, $client, $guard, $forms);
     }
-}
 
-$lines = [
-    '# CSRF static source inventory',
-    '',
-    'Generated by `php tests/csrf_check.php --write-report`. This is a source scan, not proof that each action is protected; review routes and run the staging procedure in [CSRF_DOCUMENTATION.md](./CSRF_DOCUMENTATION.md).',
-    '',
-    '| PHP file | Server POST code | Client POST call | CSRF guard reference | Literal POST forms |',
-    '|---|---|---|---|---|',
-];
+    $lines[] = '';
+    $lines[] = '## Items to review';
+    $lines[] = '';
+    $lines[] = '- `ajax/pusher_auth.php` reads POST fields without the CSRF helper. It is an authenticated Pusher channel-authorization endpoint, not a data-changing action; separately verify its login requirement and restriction to the current user channel. Add CSRF validation if its behavior is changed to mutate application data or policy requires every POST to carry a token.';
+    $lines[] = '- Files with a client POST but no server POST handler are callers/templates; follow the request to its endpoint and verify that the caller sends a token and the endpoint validates it.';
+    $lines[] = '- A helper reference anywhere in a file does not establish that every action branch is guarded. Check each handler before its first side effect.';
+    $lines[] = '';
+    $lines[] = 'The scan excludes `vendor/`, `uploads/`, helper library definitions, and the test script itself.';
+    $report = implode("\n", $lines) . "\n";
 
-foreach ($inventory as $path => $inspection) {
-    $server = $inspection['has_server_post'] ? 'yes' : 'no';
-    $client = $inspection['has_client_post'] ? 'yes' : 'no';
-    $guard = $inspection['has_guard'] ? 'helper found' : 'not found';
-    $forms = $inspection['post_forms'] === 0
-        ? 'none found'
-        : sprintf(
-            '%d/%d inline token refs',
+    echo "\nStatic source inventory (review each route; this does not send requests):\n";
+    foreach ($inventory as $path => $inspection) {
+        printf(
+            "- %s — server POST: %s; client POST: %s; guard: %s; POST forms: %d/%d token refs\n",
+            $path,
+            $inspection['has_server_post'] ? 'yes' : 'no',
+            $inspection['has_client_post'] ? 'yes' : 'no',
+            $inspection['has_guard'] ? 'found' : 'not found',
             $inspection['forms_with_token'],
             $inspection['post_forms']
         );
-
-    if ($inspection['post_forms'] > 0 && $inspection['forms_missing_token'] > 0 && $inspection['has_dynamic_token']) {
-        $forms .= '; dynamic token ref also found (manual check)';
     }
 
-    $markdownPath = str_replace('\\', '/', $path);
-    $lines[] = sprintf('| `%s` | %s | %s | %s | %s |', $markdownPath, $server, $client, $guard, $forms);
-}
-
-$lines[] = '';
-$lines[] = '## Items to review';
-$lines[] = '';
-$lines[] = '- `ajax/pusher_auth.php` reads POST fields without the CSRF helper. It is an authenticated Pusher channel-authorization endpoint, not a data-changing action; separately verify its login requirement and restriction to the current user channel. Add CSRF validation if its behavior is changed to mutate application data or policy requires every POST to carry a token.';
-$lines[] = '- Files with a client POST but no server POST handler are callers/templates; follow the request to its endpoint and verify that the caller sends a token and the endpoint validates it.';
-$lines[] = '- A helper reference anywhere in a file does not establish that every action branch is guarded. Check each handler before its first side effect.';
-$lines[] = '';
-$lines[] = 'The scan excludes `vendor/`, `uploads/`, helper library definitions, and the test script itself.';
-$report = implode("\n", $lines) . "\n";
-
-echo "\nStatic source inventory (review each route; this does not send requests):\n";
-foreach ($inventory as $path => $inspection) {
-    printf(
-        "- %s — server POST: %s; client POST: %s; guard: %s; POST forms: %d/%d token refs\n",
-        $path,
-        $inspection['has_server_post'] ? 'yes' : 'no',
-        $inspection['has_client_post'] ? 'yes' : 'no',
-        $inspection['has_guard'] ? 'found' : 'not found',
-        $inspection['forms_with_token'],
-        $inspection['post_forms']
-    );
-}
-
-if (in_array('--write-report', $argv, true)) {
-    $reportPath = $root . '/_csrf_reference/COVERAGE.md';
-    if (file_put_contents($reportPath, $report) === false) {
-        fwrite(STDERR, "Could not write {$reportPath}\n");
-        exit(1);
+    if ($writeReport) {
+        $reportPath = $root . '/_csrf_reference/COVERAGE.md';
+        if (file_put_contents($reportPath, $report) === false) {
+            fwrite(STDERR, "Could not write {$reportPath}\n");
+            exit(1);
+        }
+        echo "\nUpdated _csrf_reference/COVERAGE.md\n";
     }
-    echo "\nUpdated _csrf_reference/COVERAGE.md\n";
+
+    echo sprintf("POST-related PHP files inventoried: %d.\n", count($inventory));
+
+    return finishSuite('CSRF Protection');
 }
 
-echo sprintf(
-    "\nBehavior checks: %d passed, %d failed. POST-related PHP files inventoried: %d.\n",
-    $passed,
-    count($failures),
-    count($inventory)
-);
-
-if ($failures) {
-    exit(1);
+// ── Standalone execution ──────────────────────────────────────────────────
+if (!defined('RUNNER_MODE')) {
+    sectionHeader('CSRF Protection Suite');
+    $writeReport = in_array('--write-report', $argv ?? [], true);
+    $failed = runCsrfSuite($writeReport);
+    exit($failed > 0 ? 1 : 0);
 }
